@@ -3,7 +3,7 @@
 # ============================================
 
 # Build stage
-FROM node:18-alpine AS builder
+FROM node:25-alpine AS builder
 
 WORKDIR /build
 
@@ -14,7 +14,7 @@ COPY package*.json ./
 RUN npm ci --only=production
 
 # Production stage
-FROM node:18-alpine AS production
+FROM node:25-alpine AS production
 
 # Security: Create non-root user
 RUN addgroup -g 1000 -S appgroup && \
