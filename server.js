@@ -255,7 +255,7 @@ const GATEWAY_RAW_URL = process.env.GATEWAY_URL || 'http://openclaw.llm.svc.clus
 const GATEWAY_HTTP_URL = GATEWAY_RAW_URL.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:');
 const GATEWAY_TOKEN = process.env.GATEWAY_AUTH_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN || process.env.GATEWAY_TOKEN || '';
 const GATEWAY_SESSION_KEY = process.env.OPENCLAW_SESSION_KEY || process.env.MISO_CHAT_SESSION_KEY || 'agent:main:main';
-const SEND_TIMEOUT_SECONDS = Number(process.env.SEND_TIMEOUT_SECONDS || 60);
+const SEND_TIMEOUT_SECONDS = Number(process.env.SEND_TIMEOUT_SECONDS || 180);
 
 function gatewayInvoke(tool, args = {}) {
   return new Promise((resolve, reject) => {
@@ -351,14 +351,48 @@ async function sendSessionMessage(message) {
 wss.on('connection', (ws) => {
   console.log('Client connected');
 
+  const pendingMessages = [];
+  let processing = false;
+
+  const safeSend = (payload) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(payload));
+    }
+  };
+
+  const processQueue = async () => {
+    if (processing || pendingMessages.length === 0 || ws.readyState !== WebSocket.OPEN) return;
+
+    processing = true;
+    const msg = pendingMessages.shift();
+
+    safeSend({ type: 'queue', pending: pendingMessages.length });
+    safeSend({ type: 'typing', show: true });
+
+    try {
+      const reply = await sendSessionMessage(msg);
+      if (reply) {
+        safeSend({ content: reply });
+      } else {
+        safeSend({ error: 'No reply content returned.' });
+      }
+    } catch (err) {
+      safeSend({ error: `Send failed: ${err.message}` });
+    } finally {
+      safeSend({ type: 'typing', show: false });
+      processing = false;
+      setImmediate(processQueue);
+    }
+  };
+
   if (!GATEWAY_TOKEN) {
-    ws.send(JSON.stringify({ type: 'status', connected: false }));
-    ws.send(JSON.stringify({ error: 'Gateway auth token is missing.' }));
+    safeSend({ type: 'status', connected: false });
+    safeSend({ error: 'Gateway auth token is missing.' });
   } else {
-    ws.send(JSON.stringify({ type: 'status', connected: true }));
+    safeSend({ type: 'status', connected: true });
   }
 
-  ws.on('message', async (message) => {
+  ws.on('message', (message) => {
     let payload;
     try {
       payload = JSON.parse(message.toString());
@@ -371,22 +405,16 @@ wss.on('connection', (ws) => {
     const msg = payload.content.trim();
     if (!msg) return;
 
-    ws.send(JSON.stringify({ type: 'typing', show: true }));
-    try {
-      const reply = await sendSessionMessage(msg);
-      if (reply) {
-        ws.send(JSON.stringify({ content: reply }));
-      } else {
-        ws.send(JSON.stringify({ error: 'No reply content returned.' }));
-      }
-    } catch (err) {
-      ws.send(JSON.stringify({ error: `Send failed: ${err.message}` }));
-    } finally {
-      ws.send(JSON.stringify({ type: 'typing', show: false }));
+    pendingMessages.push(msg);
+    if (pendingMessages.length > 1 || processing) {
+      safeSend({ type: 'queue', pending: pendingMessages.length });
     }
+
+    processQueue();
   });
 
   ws.on('close', () => {
+    pendingMessages.length = 0;
     console.log('Client disconnected');
   });
 
