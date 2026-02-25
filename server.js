@@ -6,6 +6,9 @@ const passport = require('passport');
 const LocalStrategy = require('passport-local').Strategy;
 const rateLimit = require('express-rate-limit');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const securityMiddleware = require('./security');
@@ -194,6 +197,111 @@ const GATEWAY_WS_URL = process.env.GATEWAY_WS_URL || (() => {
 })();
 const GATEWAY_WS_ORIGIN = process.env.GATEWAY_WS_ORIGIN || '';
 const GATEWAY_WS_CLIENT_ID = process.env.GATEWAY_WS_CLIENT_ID || 'webchat-ui';
+const GATEWAY_WS_CLIENT_MODE = process.env.GATEWAY_WS_CLIENT_MODE || 'webchat';
+const GATEWAY_DEVICE_IDENTITY_PATH = process.env.GATEWAY_DEVICE_IDENTITY_PATH
+  || path.join(process.env.HOME || '/home/node', '.openclaw', 'identity', 'device.json');
+const GATEWAY_WS_WAIT_CHALLENGE_MS = Number(process.env.GATEWAY_WS_WAIT_CHALLENGE_MS || 1200);
+
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+let cachedGatewayDeviceIdentity = null;
+
+function base64UrlEncode(buffer) {
+  return Buffer.from(buffer)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function derivePublicKeyRawFromPem(publicKeyPem) {
+  const spki = crypto.createPublicKey(publicKeyPem).export({ type: 'spki', format: 'der' });
+  if (spki.length === ED25519_SPKI_PREFIX.length + 32 && spki.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)) {
+    return spki.subarray(ED25519_SPKI_PREFIX.length);
+  }
+  return spki;
+}
+
+function buildDeviceAuthPayload({ deviceId, clientId, clientMode, role, scopes, signedAtMs, token, nonce }) {
+  const scopesList = Array.isArray(scopes) ? scopes : [];
+  return [
+    'v2',
+    deviceId,
+    clientId,
+    clientMode,
+    role,
+    scopesList.join(','),
+    String(signedAtMs),
+    token || '',
+    nonce,
+  ].join('|');
+}
+
+function loadGatewayDeviceIdentity() {
+  if (cachedGatewayDeviceIdentity !== null) return cachedGatewayDeviceIdentity;
+
+  try {
+    const raw = fs.readFileSync(GATEWAY_DEVICE_IDENTITY_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed?.deviceId || !parsed?.publicKeyPem || !parsed?.privateKeyPem) {
+      cachedGatewayDeviceIdentity = null;
+      return null;
+    }
+
+    const publicKey = base64UrlEncode(derivePublicKeyRawFromPem(parsed.publicKeyPem));
+    cachedGatewayDeviceIdentity = {
+      deviceId: parsed.deviceId,
+      publicKey,
+      privateKeyPem: parsed.privateKeyPem,
+    };
+    return cachedGatewayDeviceIdentity;
+  } catch {
+    cachedGatewayDeviceIdentity = null;
+    return null;
+  }
+}
+
+function buildGatewayDeviceAuth({ nonce, scopes }) {
+  const identity = loadGatewayDeviceIdentity();
+  if (!identity || !nonce) return null;
+
+  const signedAt = Date.now();
+  const payload = buildDeviceAuthPayload({
+    deviceId: identity.deviceId,
+    clientId: GATEWAY_WS_CLIENT_ID,
+    clientMode: GATEWAY_WS_CLIENT_MODE,
+    role: 'operator',
+    scopes,
+    signedAtMs: signedAt,
+    token: GATEWAY_TOKEN,
+    nonce,
+  });
+
+  const signature = base64UrlEncode(
+    crypto.sign(null, Buffer.from(payload, 'utf8'), crypto.createPrivateKey(identity.privateKeyPem))
+  );
+
+  return {
+    id: identity.deviceId,
+    publicKey: identity.publicKey,
+    signature,
+    signedAt,
+    nonce,
+  };
+}
+
+function extractConnectChallengeNonce(frame) {
+  if (!frame || typeof frame !== 'object') return '';
+
+  if (frame.type === 'connect.challenge' && typeof frame.nonce === 'string') {
+    return frame.nonce;
+  }
+
+  if (frame.type === 'event' && frame.event === 'connect.challenge' && typeof frame.payload?.nonce === 'string') {
+    return frame.payload.nonce;
+  }
+
+  return '';
+}
 
 // Helper to call gateway via HTTP
 function gatewayInvoke(tool, args = {}) {
@@ -329,6 +437,10 @@ function gatewayChatSend({ sessionKey, message, timeoutSeconds, origin }) {
       if (closed) return;
       closed = true;
       clearTimeout(timeout);
+      if (challengeWaitTimer) {
+        clearTimeout(challengeWaitTimer);
+        challengeWaitTimer = null;
+      }
       try {
         ws.close();
       } catch {
@@ -342,7 +454,21 @@ function gatewayChatSend({ sessionKey, message, timeoutSeconds, origin }) {
       done(new Error(`Gateway websocket timeout after ${Math.round(timeoutMs / 1000)}s`));
     }, timeoutMs);
 
-    ws.on('open', () => {
+    const requestedScopes = ['operator.read', 'operator.write', 'chat.send', 'sessions.send', 'sessions.list', 'sessions.history'];
+    const hasDeviceIdentity = Boolean(loadGatewayDeviceIdentity());
+    let connectSent = false;
+    let challengeWaitTimer = null;
+
+    const sendConnect = (nonce = '') => {
+      if (connectSent) return;
+      connectSent = true;
+      if (challengeWaitTimer) {
+        clearTimeout(challengeWaitTimer);
+        challengeWaitTimer = null;
+      }
+
+      const deviceAuth = nonce ? buildGatewayDeviceAuth({ nonce, scopes: requestedScopes }) : null;
+
       ws.send(
         JSON.stringify({
           type: 'req',
@@ -355,10 +481,10 @@ function gatewayChatSend({ sessionKey, message, timeoutSeconds, origin }) {
               id: GATEWAY_WS_CLIENT_ID,
               version: 'miso-chat/1.0.0',
               platform: process.platform,
-              mode: 'webchat',
+              mode: GATEWAY_WS_CLIENT_MODE,
             },
-            role: 'operator', // DEBUG,
-            scopes: ['operator.read', 'operator.write', 'chat.send', 'sessions.send', 'sessions.list', 'sessions.history'],
+            role: 'operator',
+            scopes: requestedScopes,
             caps: [],
             ...(GATEWAY_TOKEN
               ? {
@@ -367,9 +493,21 @@ function gatewayChatSend({ sessionKey, message, timeoutSeconds, origin }) {
                   },
                 }
               : {}),
+            ...(deviceAuth ? { device: deviceAuth } : {}),
           },
         })
       );
+    };
+
+    ws.on('open', () => {
+      if (hasDeviceIdentity) {
+        challengeWaitTimer = setTimeout(() => {
+          console.warn('Gateway connect.challenge not received in time; falling back to unsigned connect request');
+          sendConnect('');
+        }, Math.max(200, GATEWAY_WS_WAIT_CHALLENGE_MS));
+      } else {
+        sendConnect('');
+      }
     });
 
     ws.on('message', (raw) => {
@@ -377,6 +515,12 @@ function gatewayChatSend({ sessionKey, message, timeoutSeconds, origin }) {
       if (closed) return;
 
       if (!connected) {
+        const challengeNonce = extractConnectChallengeNonce(frame);
+        if (challengeNonce) {
+          sendConnect(challengeNonce);
+          return;
+        }
+
         if (frameMatchesId(frame, connectId) || frame.type === 'connected' || frame.type === 'connect.ok') {
           const connectError = extractGatewayError(frame);
           if (connectError) {
@@ -549,7 +693,7 @@ app.post('/api/sessions/:sessionKey/send', isAuthenticated, async (req, res) => 
     if (msg.includes('invalid connect params')) {
       return res.status(500).json({
         error:
-          'Gateway rejected websocket connect params. Ensure the browser Origin header is present/allowed by gateway.controlUi.allowedOrigins (or set GATEWAY_WS_ORIGIN), and clientId is webchat-ui.',
+          'Gateway rejected websocket connect params. Verify Origin is allowed, and ensure device identity is available at GATEWAY_DEVICE_IDENTITY_PATH so websocket scopes (operator.write) can be granted.',
       });
     }
     res.status(500).json({ error: msg });
@@ -564,7 +708,8 @@ server.listen(PORT, () => {
    Gateway: ${GATEWAY_URL}
    Gateway WS: ${GATEWAY_WS_URL}
    Gateway WS Origin: ${GATEWAY_WS_ORIGIN || '(none)'}
-   Gateway WS Client: ${GATEWAY_WS_CLIENT_ID}
+   Gateway WS Client: ${GATEWAY_WS_CLIENT_ID} (${GATEWAY_WS_CLIENT_MODE})
+   Gateway Device Identity: ${fs.existsSync(GATEWAY_DEVICE_IDENTITY_PATH) ? GATEWAY_DEVICE_IDENTITY_PATH : 'missing'}
    Default Session: ${DEFAULT_SESSION_KEY}
    Auth: ${process.env.OIDC_ENABLED === 'true' ? 'OIDC' : 'Local'}
    Node Env: ${process.env.NODE_ENV || 'development'}
