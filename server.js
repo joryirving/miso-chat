@@ -236,6 +236,38 @@ function buildDeviceAuthPayload({ deviceId, clientId, clientMode, role, scopes, 
   ].join('|');
 }
 
+function ensureGatewayDeviceIdentity() {
+  if (cachedGatewayDeviceIdentity !== null) return cachedGatewayDeviceIdentity;
+  
+  // Try to load existing
+  try {
+    if (fs.existsSync(GATEWAY_DEVICE_IDENTITY_PATH)) {
+      const raw = fs.readFileSync(GATEWAY_DEVICE_IDENTITY_PATH, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed?.deviceId && parsed?.publicKeyPem && parsed?.privateKeyPem) {
+        const publicKey = base64UrlEncode(derivePublicKeyRawFromPem(parsed.publicKeyPem));
+        cachedGatewayDeviceIdentity = {
+          deviceId: parsed.deviceId,
+          publicKey,
+          privateKeyPem: parsed.privateKeyPem,
+        };
+        return cachedGatewayDeviceIdentity;
+      }
+    }
+  } catch {}
+  // Generate new identity
+  const { publicKey, privateKey } = require('crypto').generateKeyPairSync('ed25519');
+  const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const crypto = require('crypto');
+  const fingerprint = crypto.createHash('sha256').update(publicKeyPem).digest('hex');
+  const identity = { deviceId: fingerprint, publicKeyPem, privateKeyPem };
+  // Save it
+  try { fs.mkdirSync(require('path').dirname(GATEWAY_DEVICE_IDENTITY_PATH), { recursive: true }); fs.writeFileSync(GATEWAY_DEVICE_IDENTITY_PATH, JSON.stringify(identity, null, 2)); } catch {}
+  cachedGatewayDeviceIdentity = { deviceId: identity.deviceId, publicKey: base64UrlEncode(derivePublicKeyRawFromPem(publicKeyPem)), privateKeyPem };
+  return cachedGatewayDeviceIdentity;
+}
+
 function loadGatewayDeviceIdentity() {
   if (cachedGatewayDeviceIdentity !== null) return cachedGatewayDeviceIdentity;
 
@@ -261,7 +293,7 @@ function loadGatewayDeviceIdentity() {
 }
 
 function buildGatewayDeviceAuth({ nonce, scopes }) {
-  const identity = loadGatewayDeviceIdentity();
+  const identity = ensureGatewayDeviceIdentity();
   if (!identity || !nonce) return null;
 
   const signedAt = Date.now();
@@ -455,7 +487,7 @@ function gatewayChatSend({ sessionKey, message, timeoutSeconds, origin }) {
     }, timeoutMs);
 
     const requestedScopes = ['operator.read', 'operator.write', 'chat.send', 'sessions.send', 'sessions.list', 'sessions.history'];
-    const hasDeviceIdentity = Boolean(loadGatewayDeviceIdentity());
+    const hasDeviceIdentity = Boolean(ensureGatewayDeviceIdentity());
     let connectSent = false;
     let challengeWaitTimer = null;
 
