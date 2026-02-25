@@ -42,6 +42,7 @@ app.use((req, res, next) => {
 app.use(express.static('public', { index: false }));
 
 // Session config
+const oidcEnabled = process.env.OIDC_ENABLED === 'true';
 const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET || 'dev-secret-change-in-production',
   resave: false,
@@ -49,7 +50,8 @@ const sessionMiddleware = session({
   cookie: { 
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    sameSite: 'strict',
+    // OIDC auth redirects are cross-site; Strict drops session cookie on callback and causes loops.
+    sameSite: oidcEnabled ? 'lax' : 'strict',
     maxAge: 24 * 60 * 60 * 1000
   }
 });
