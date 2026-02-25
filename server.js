@@ -444,59 +444,6 @@ function extractReplyText(reply) {
   return '';
 }
 
-/** Normalize a single tool call from OpenAI (tool_calls) or Anthropic (tool_use) style. */
-function normalizeToolCall(part) {
-  if (part?.type === 'tool_calls' && Array.isArray(part.tool_calls)) {
-    return part.tool_calls.map((tc) => ({
-      id: tc.id,
-      name: tc.function?.name || tc.name || 'tool',
-      arguments: typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {}),
-      result: tc.result,
-      error: tc.error,
-      status: tc.error ? 'error' : (tc.result !== undefined ? 'success' : 'calling'),
-    }));
-  }
-  if (part?.type === 'tool_use') {
-    const name = part.name || part.tool_use?.name || 'tool';
-    const args = part.input ?? part.tool_use?.input ?? {};
-    return [{
-      id: part.id || part.tool_use?.id,
-      name,
-      arguments: typeof args === 'string' ? args : JSON.stringify(args),
-      result: part.result,
-      error: part.error,
-      status: part.error ? 'error' : (part.result !== undefined ? 'success' : 'calling'),
-    }];
-  }
-  return [];
-}
-
-function extractReplyToolCalls(reply) {
-  const out = [];
-  function walk(r) {
-    if (!r) return;
-    if (Array.isArray(r)) {
-      r.forEach(walk);
-      return;
-    }
-    if (typeof r !== 'object') return;
-    if (Array.isArray(r.content)) {
-      r.content.forEach((p) => {
-        const list = normalizeToolCall(p);
-        list.forEach((tc) => out.push(tc));
-      });
-    }
-    if (Array.isArray(r.tool_calls)) {
-      normalizeToolCall({ type: 'tool_calls', tool_calls: r.tool_calls }).forEach((tc) => out.push(tc));
-    }
-    walk(r.reply);
-    walk(r.response);
-    walk(r.details?.reply);
-  }
-  walk(reply);
-  return out;
-}
-
 function buildGatewayWsHeaders({ origin } = {}) {
   const headers = {};
   if (GATEWAY_TOKEN) {
@@ -764,43 +711,23 @@ app.get('/api/sessions/:sessionKey/history', isAuthenticated, async (req, res) =
     const messages = raw
       .map((m) => {
         const role = m.role || 'assistant';
-        let content;
-        let toolCalls = [];
-
-        if (typeof m.content === 'string') {
-          content = m.content;
-        } else if (Array.isArray(m.content)) {
-          const textParts = [];
-          m.content.forEach((p) => {
-            if (typeof p === 'string') {
-              textParts.push(p);
-            } else if (p?.text) {
-              textParts.push(p.text);
-            } else if (p?.content) {
-              textParts.push(p.content);
-            } else {
-              const list = normalizeToolCall(p);
-              list.forEach((tc) => toolCalls.push(tc));
-            }
-          });
-          content = textParts.filter(Boolean).join('\n');
-        } else {
-          content = m.content?.text || m.text || JSON.stringify(m.content || '');
-        }
-
-        const text = role === 'assistant' ? sanitizeAssistantText(content) : content;
-        const hasContent = typeof text === 'string' && text.trim().length > 0;
-        const hasToolCalls = toolCalls.length > 0;
-        if (!hasContent && !hasToolCalls) return null;
+        const content =
+          typeof m.content === 'string'
+            ? m.content
+            : Array.isArray(m.content)
+              ? m.content
+                  .map((p) => (typeof p === 'string' ? p : p?.text || p?.content || ''))
+                  .filter(Boolean)
+                  .join('\n')
+              : m.content?.text || m.text || JSON.stringify(m.content || '');
 
         return {
           role,
-          content: hasContent ? text : (hasToolCalls ? ' ' : ''),
+          content: role === 'assistant' ? sanitizeAssistantText(content) : content,
           timestamp: m.timestamp,
-          ...(hasToolCalls ? { toolCalls } : {}),
         };
       })
-      .filter(Boolean);
+      .filter((m) => typeof m.content === 'string' && m.content.trim().length > 0);
     res.json({ sessionKey, messages });
   } catch (error) {
     console.error('Error getting history:', error.message);
@@ -821,17 +748,15 @@ app.post('/api/sessions/:sessionKey/send', isAuthenticated, async (req, res) => 
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    console.log(`Sending to ${sessionKey}:`, message);
+    console.log(`Sending to ${sessionKey}: [message hidden]`);
 
     const timeoutSeconds = Number(process.env.SEND_TIMEOUT_SECONDS || 180);
     const requestOrigin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
     const payload = await gatewayChatSend({ sessionKey, message, timeoutSeconds, origin: requestOrigin });
-    const replyPayload = payload?.reply || payload?.response || payload?.details?.reply || payload;
-    const responseText = extractReplyText(replyPayload);
+    const responseText = extractReplyText(payload?.reply || payload?.response || payload?.details?.reply || payload);
     const filteredResponseText = sanitizeAssistantText(responseText);
-    const toolCalls = extractReplyToolCalls(replyPayload);
 
-    res.json({ success: true, response: payload, responseText: filteredResponseText, toolCalls });
+    res.json({ success: true, response: payload, responseText: filteredResponseText });
   } catch (error) {
     console.error('Error sending:', error.message);
     const msg = String(error.message || 'send failed');
