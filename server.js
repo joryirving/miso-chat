@@ -253,6 +253,31 @@ function extractReplyText(reply) {
   return '';
 }
 
+const ANNOUNCE_NOISE_MARKERS = ['ANNOUNCE_SKIP', 'Agent-to-agent announce step.'];
+
+function isAnnounceNoiseLine(line) {
+  const value = (line || '').trim();
+  if (!value) return false;
+  return ANNOUNCE_NOISE_MARKERS.some((marker) =>
+    marker === 'ANNOUNCE_SKIP' ? value.includes(marker) : value === marker
+  );
+}
+
+function sanitizeAssistantText(text) {
+  const value = typeof text === 'string' ? text : '';
+  if (!value.trim()) return '';
+
+  const cleaned = value
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => !isAnnounceNoiseLine(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return cleaned;
+}
+
 // GET /api/sessions - List all sessions via gateway
 app.get('/api/sessions', isAuthenticated, async (req, res) => {
   try {
@@ -294,19 +319,26 @@ app.get('/api/sessions/:sessionKey/history', isAuthenticated, async (req, res) =
     const result = await gatewayInvoke('sessions_history', { sessionKey, limit: 100 });
     const payload = unwrapToolResult(result);
     const raw = payload?.history || payload?.messages || [];
-    const messages = raw.map((m) => ({
-      role: m.role || 'assistant',
-      content:
-        typeof m.content === 'string'
-          ? m.content
-          : Array.isArray(m.content)
+    const messages = raw
+      .map((m) => {
+        const role = m.role || 'assistant';
+        const content =
+          typeof m.content === 'string'
             ? m.content
-                .map((p) => (typeof p === 'string' ? p : p?.text || p?.content || ''))
-                .filter(Boolean)
-                .join('\n')
-            : m.content?.text || m.text || JSON.stringify(m.content || ''),
-      timestamp: m.timestamp,
-    }));
+            : Array.isArray(m.content)
+              ? m.content
+                  .map((p) => (typeof p === 'string' ? p : p?.text || p?.content || ''))
+                  .filter(Boolean)
+                  .join('\n')
+              : m.content?.text || m.text || JSON.stringify(m.content || '');
+
+        return {
+          role,
+          content: role === 'assistant' ? sanitizeAssistantText(content) : content,
+          timestamp: m.timestamp,
+        };
+      })
+      .filter((m) => typeof m.content === 'string' && m.content.trim().length > 0);
     res.json({ sessionKey, messages });
   } catch (error) {
     console.error('Error getting history:', error.message);
@@ -338,9 +370,7 @@ app.post('/api/sessions/:sessionKey/send', isAuthenticated, async (req, res) => 
 
     const payload = unwrapToolResult(result);
     const responseText = extractReplyText(payload?.reply || payload?.response || payload?.details?.reply);
-    const filteredResponseText = ['ANNOUNCE_SKIP', 'Agent-to-agent announce step.'].includes(responseText?.trim())
-      ? ''
-      : responseText;
+    const filteredResponseText = sanitizeAssistantText(responseText);
 
     res.json({ success: true, response: payload, responseText: filteredResponseText });
   } catch (error) {

@@ -9,9 +9,11 @@
     <meta name="format-detection" content="telephone=no">
     
     <title>Miso Chat</title>
-    
-    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%23e94560'/><text y='65' x='50' text-anchor='middle' font-size='50'>🍲</text></svg>">
-    <link rel="apple-touch-startup-image" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%231a1a2e' width='100' height='100'/><text y='65' x='50' text-anchor='middle' font-size='50'>🍲</text></svg>">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
     
     <style>
         :root {
@@ -134,6 +136,12 @@
         .icon-btn:active {
             transform: scale(0.96);
         }
+
+        .icon-btn.active {
+            border-color: rgba(233, 69, 96, 0.75);
+            box-shadow: 0 0 0 1px rgba(233, 69, 96, 0.3);
+            background: rgba(233, 69, 96, 0.15);
+        }
         
         @keyframes pulse {
             0%, 100% { opacity: 1; }
@@ -154,7 +162,10 @@
         }
         
         .message {
-            max-width: 85%;
+            max-width: 90%;
+            display: flex;
+            align-items: flex-end;
+            gap: 8px;
             animation: slideIn 0.3s ease;
         }
         
@@ -172,11 +183,35 @@
         .message.miso {
             align-self: flex-start;
         }
-        
+
         .message.user {
             align-self: flex-end;
+            justify-content: flex-end;
         }
-        
+
+        .message-avatar {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 1px solid var(--border);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+            flex-shrink: 0;
+            margin-bottom: 2px;
+        }
+
+        .message.user .message-avatar,
+        .message.system .message-avatar {
+            display: none;
+        }
+
+        .message-content {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 0;
+        }
+
         .bubble {
             padding: 14px 18px;
             border-radius: 20px;
@@ -198,6 +233,10 @@
             color: white;
             font-weight: 500;
         }
+
+        .message.user .message-content {
+            align-items: flex-end;
+        }
         
         .message .image-attachment {
             margin-top: 10px;
@@ -215,7 +254,9 @@
         
         .message.system {
             align-self: center;
+            justify-content: center;
             max-width: 90%;
+            gap: 0;
         }
         
         .message.system .bubble {
@@ -225,6 +266,129 @@
             text-align: center;
             border-radius: 12px;
             padding: 10px 16px;
+        }
+
+        .reaction-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .reaction-btn {
+            border: 1px solid var(--border);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border-radius: 999px;
+            font-size: 12px;
+            line-height: 1;
+            padding: 4px 8px;
+            cursor: pointer;
+            opacity: 0.85;
+        }
+
+        .reaction-btn.active {
+            border-color: rgba(233, 69, 96, 0.8);
+            box-shadow: 0 0 0 1px rgba(233, 69, 96, 0.25);
+            opacity: 1;
+        }
+
+        .code-inline {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 1px 6px;
+            margin: 0 1px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.92em;
+            line-height: 1.4;
+        }
+
+        .code-block {
+            margin-top: 8px;
+            border: 1px solid var(--border);
+            border-left: 3px solid #7f8cff;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #111320;
+        }
+
+        .code-block-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 6px 10px;
+            background: rgba(255, 255, 255, 0.04);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-secondary);
+        }
+
+        .code-block-body {
+            margin: 0;
+            padding: 10px 12px;
+            overflow-x: auto;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 13px;
+            line-height: 1.45;
+            color: #e9edff;
+            white-space: pre;
+        }
+
+        .code-block-body .tok-comment { color: #7f88a8; }
+        .code-block-body .tok-keyword { color: #ff8f70; }
+        .code-block-body .tok-string { color: #9fe870; }
+        .code-block-body .tok-number { color: #ffd166; }
+        .code-block-body .tok-boolean { color: #c792ea; }
+        .code-block-body .tok-operator { color: #7aa2ff; }
+        .code-block-body .tok-punctuation { color: #8da2c9; }
+        .code-block-body .tok-property { color: #7bdff2; }
+        .code-block-body .tok-command { color: #f7b267; }
+
+        .copy-code-btn {
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+            border-radius: 999px;
+            padding: 2px 7px;
+            font-size: 11px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .copy-code-btn:hover {
+            border-color: rgba(255, 255, 255, 0.38);
+            background: rgba(255, 255, 255, 0.14);
+        }
+
+        .copy-code-btn.copied {
+            border-color: rgba(70, 214, 140, 0.7);
+            background: rgba(70, 214, 140, 0.16);
+            color: #9cf0c4;
+        }
+
+        .code-block[data-lang="js"],
+        .code-block[data-lang="javascript"],
+        .code-block[data-lang="ts"],
+        .code-block[data-lang="typescript"] {
+            border-left-color: #7f8cff;
+        }
+
+        .code-block[data-lang="json"],
+        .code-block[data-lang="yaml"],
+        .code-block[data-lang="yml"] {
+            border-left-color: #37c8ab;
+        }
+
+        .code-block[data-lang="bash"],
+        .code-block[data-lang="sh"],
+        .code-block[data-lang="shell"] {
+            border-left-color: #ffb14a;
         }
         
         /* Quick Actions */
@@ -372,6 +536,18 @@
         .refresh-hint.visible {
             opacity: 1;
         }
+
+        @media (max-width: 420px) {
+            .message {
+                max-width: 94%;
+                gap: 6px;
+            }
+
+            .message-avatar {
+                width: 20px;
+                height: 20px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -386,6 +562,7 @@
         </div>
         <div class="header-controls">
             <button class="icon-btn" id="refreshBtn" title="Refresh" aria-label="Refresh">↻</button>
+            <button class="icon-btn" id="soundToggleBtn" title="Toggle reply sound" aria-label="Toggle reply sound" aria-pressed="false">🔕</button>
             <select id="sessionSelect" class="session-select" onchange="selectSession(this.value)">
                 <option value="">Loading sessions...</option>
             </select>
@@ -395,7 +572,10 @@
     
     <div class="messages" id="messages">
         <div class="message miso">
-            <div class="bubble">Hey there! 👋 Connected! What would you like?</div>
+            <img class="message-avatar" src="/favicon-32x32.png" alt="Miso avatar" loading="lazy" decoding="async">
+            <div class="message-content">
+                <div class="bubble">Hey there! 👋 Connected! What would you like?</div>
+            </div>
         </div>
     </div>
     
@@ -421,18 +601,267 @@
     </div>
 
     <script>
+        const SESSION_STORAGE_KEY = 'miso.selectedSessionKey';
+        const QUEUE_STORAGE_KEY = 'miso.pendingQueue';
+        const REACTION_STORAGE_KEY = 'miso.messageReactions.v1';
+        const NOTIFY_SOUND_KEY = 'miso.notify.soundEnabled.v1';
+        const REACTION_OPTIONS = ['❤️', '👍', '😂', '👀'];
+
         let currentSessionKey = null;
         let defaultSessionKey = 'agent:main:main';
         let sendQueue = loadPendingQueue();
         let sending = false;
 
-        const SESSION_STORAGE_KEY = 'miso.selectedSessionKey';
-        const QUEUE_STORAGE_KEY = 'miso.pendingQueue';
+        const CODE_BLOCK_REGEX = /```([\w+-]+)?\n([\s\S]*?)```/g;
+        const INLINE_CODE_REGEX = /`([^`\n]+)`/g;
+
+        function escapeHtml(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        function normalizedLang(lang) {
+            const value = String(lang || '').trim().toLowerCase();
+            if (['js', 'jsx', 'mjs', 'cjs'].includes(value)) return 'javascript';
+            if (['ts', 'tsx'].includes(value)) return 'typescript';
+            if (['sh', 'zsh'].includes(value)) return 'bash';
+            if (value === 'yml') return 'yaml';
+            return value;
+        }
+
+        function protectTokenMatches(source, patterns) {
+            let out = source;
+            const tokens = [];
+
+            patterns.forEach(({ regex, className }) => {
+                out = out.replace(regex, (match) => {
+                    const index = tokens.push(`<span class="${className}">${match}</span>`) - 1;
+                    return `__TOK_${index}__`;
+                });
+            });
+
+            return { out, tokens };
+        }
+
+        function restoreTokenMatches(source, tokens) {
+            return source.replace(/__TOK_(\d+)__/g, (_, rawIndex) => {
+                const index = Number(rawIndex);
+                return Number.isInteger(index) && tokens[index] ? tokens[index] : '';
+            });
+        }
+
+        function highlightCode(rawCode, lang) {
+            const source = escapeHtml(rawCode);
+            const grammar = normalizedLang(lang);
+
+            if (['javascript', 'typescript'].includes(grammar)) {
+                const { out: base, tokens } = protectTokenMatches(source, [
+                    { regex: /(\/\/[^\n]*)/g, className: 'tok-comment' },
+                    { regex: /(`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, className: 'tok-string' },
+                ]);
+
+                let out = base;
+                out = out.replace(/\b(const|let|var|function|return|if|else|for|while|switch|case|break|continue|try|catch|finally|throw|new|class|extends|import|from|export|default|async|await|typeof|instanceof)\b/g, '<span class="tok-keyword">$1</span>');
+                out = out.replace(/\b(true|false|null|undefined)\b/g, '<span class="tok-boolean">$1</span>');
+                out = out.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-number">$1</span>');
+                out = out.replace(/([{}()[\].,;:])/g, '<span class="tok-punctuation">$1</span>');
+                out = out.replace(/([+\-*\/%=&|!<>]+)/g, '<span class="tok-operator">$1</span>');
+
+                return restoreTokenMatches(out, tokens);
+            }
+
+            if (grammar === 'json') {
+                let out = source;
+                out = out.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"(?=\s*:)/g, '<span class="tok-property">"$1"</span>');
+                out = out.replace(/:\s*("(?:[^"\\]|\\.)*")/g, ': <span class="tok-string">$1</span>');
+                out = out.replace(/\b(true|false|null)\b/g, '<span class="tok-boolean">$1</span>');
+                out = out.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-number">$1</span>');
+                out = out.replace(/([{}[\],])/g, '<span class="tok-punctuation">$1</span>');
+                return out;
+            }
+
+            if (grammar === 'yaml') {
+                let out = source;
+                out = out.replace(/(^|\n)(\s*#.*)/g, '$1<span class="tok-comment">$2</span>');
+                out = out.replace(/(^|\n)(\s*[\w.-]+)(\s*:)/g, '$1<span class="tok-property">$2</span>$3');
+                out = out.replace(/:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, ': <span class="tok-string">$1</span>');
+                out = out.replace(/\b(true|false|null|yes|no|on|off)\b/gi, '<span class="tok-boolean">$1</span>');
+                out = out.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-number">$1</span>');
+                return out;
+            }
+
+            if (grammar === 'bash' || grammar === 'shell') {
+                let out = source;
+                out = out.replace(/(^|\n)(\s*#.*)/g, '$1<span class="tok-comment">$2</span>');
+                out = out.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, '<span class="tok-string">$1</span>');
+                out = out.replace(/(^|\n)(\s*)([a-zA-Z_][\w.-]*)/g, '$1$2<span class="tok-command">$3</span>');
+                out = out.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-number">$1</span>');
+                return out;
+            }
+
+            return source;
+        }
+
+        function encodeCopyPayload(value) {
+            return btoa(unescape(encodeURIComponent(String(value || ''))));
+        }
+
+        function decodeCopyPayload(payload) {
+            try {
+                return decodeURIComponent(escape(atob(payload || '')));
+            } catch {
+                return '';
+            }
+        }
+
+        async function copyCodeFromButton(button) {
+            const payload = button?.dataset?.copyPayload;
+            if (!payload) return;
+            const text = decodeCopyPayload(payload);
+            if (!text) return;
+
+            try {
+                if (navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    const input = document.createElement('textarea');
+                    input.value = text;
+                    input.setAttribute('readonly', '');
+                    input.style.position = 'fixed';
+                    input.style.opacity = '0';
+                    document.body.appendChild(input);
+                    input.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(input);
+                }
+                const original = button.textContent;
+                button.textContent = 'Copied';
+                button.classList.add('copied');
+                setTimeout(() => {
+                    button.textContent = original;
+                    button.classList.remove('copied');
+                }, 1200);
+            } catch (error) {
+                console.warn('Copy failed:', error);
+            }
+        }
+
+        function appendTextWithInlineCode(container, source) {
+            const text = String(source || '');
+            let cursor = 0;
+            let match;
+            while ((match = INLINE_CODE_REGEX.exec(text)) !== null) {
+                const plain = text.slice(cursor, match.index);
+                if (plain) container.appendChild(document.createTextNode(plain));
+
+                const rawCode = match[1];
+                const inline = document.createElement('span');
+                inline.className = 'code-inline';
+
+                const codeNode = document.createElement('code');
+                codeNode.textContent = rawCode;
+                inline.appendChild(codeNode);
+
+                const copyBtn = document.createElement('button');
+                copyBtn.type = 'button';
+                copyBtn.className = 'copy-code-btn';
+                copyBtn.textContent = 'Copy';
+                copyBtn.dataset.copyPayload = encodeCopyPayload(rawCode);
+                copyBtn.setAttribute('aria-label', 'Copy inline code');
+                inline.appendChild(copyBtn);
+
+                container.appendChild(inline);
+                cursor = match.index + match[0].length;
+            }
+
+            const tail = text.slice(cursor);
+            if (tail) container.appendChild(document.createTextNode(tail));
+            INLINE_CODE_REGEX.lastIndex = 0;
+        }
+
+        function appendFencedCode(container, language, rawCode) {
+            const block = document.createElement('div');
+            block.className = 'code-block';
+
+            const lang = normalizedLang(language);
+            if (lang) block.dataset.lang = lang;
+
+            const header = document.createElement('div');
+            header.className = 'code-block-head';
+
+            const label = document.createElement('span');
+            label.textContent = lang || 'code';
+            header.appendChild(label);
+
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'copy-code-btn';
+            copyBtn.textContent = 'Copy';
+            copyBtn.dataset.copyPayload = encodeCopyPayload(rawCode);
+            copyBtn.setAttribute('aria-label', `Copy ${lang || 'code'} block`);
+            header.appendChild(copyBtn);
+
+            block.appendChild(header);
+
+            const pre = document.createElement('pre');
+            pre.className = 'code-block-body';
+            const code = document.createElement('code');
+            code.innerHTML = highlightCode(rawCode, lang);
+            pre.appendChild(code);
+            block.appendChild(pre);
+            container.appendChild(block);
+        }
+
+        function renderBubbleContent(bubble, text) {
+            bubble.textContent = '';
+            const value = String(text || '');
+
+            let cursor = 0;
+            let match;
+            while ((match = CODE_BLOCK_REGEX.exec(value)) !== null) {
+                const before = value.slice(cursor, match.index);
+                if (before) appendTextWithInlineCode(bubble, before);
+                appendFencedCode(bubble, match[1] || '', match[2] || '');
+                cursor = match.index + match[0].length;
+            }
+
+            const tail = value.slice(cursor);
+            if (tail) appendTextWithInlineCode(bubble, tail);
+            CODE_BLOCK_REGEX.lastIndex = 0;
+        }
+
+        function queueId() {
+            return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        }
+
+        function normalizeQueueItem(item) {
+            if (typeof item === 'string') {
+                return {
+                    id: queueId(),
+                    sessionKey: null,
+                    message: item,
+                    createdAt: Date.now(),
+                };
+            }
+            if (!item || typeof item !== 'object') return null;
+            const message = String(item.message || '').trim();
+            if (!message) return null;
+            return {
+                id: item.id || queueId(),
+                sessionKey: item.sessionKey || null,
+                message,
+                createdAt: Number(item.createdAt || Date.now()),
+            };
+        }
 
         function loadPendingQueue() {
             try {
                 const stored = localStorage.getItem(QUEUE_STORAGE_KEY);
-                return stored ? JSON.parse(stored) : [];
+                const parsed = stored ? JSON.parse(stored) : [];
+                if (!Array.isArray(parsed)) return [];
+                return parsed.map(normalizeQueueItem).filter(Boolean);
             } catch { return []; }
         }
 
@@ -441,6 +870,38 @@
                 localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
             } catch { /* ignore storage errors */ }
         }
+
+        function queueCountForSession(sessionKey) {
+            if (!sessionKey) return sendQueue.length;
+            return sendQueue.filter((item) => !item.sessionKey || item.sessionKey === sessionKey).length;
+        }
+
+        function loadReactions() {
+            try {
+                const stored = localStorage.getItem(REACTION_STORAGE_KEY);
+                const parsed = stored ? JSON.parse(stored) : {};
+                return parsed && typeof parsed === 'object' ? parsed : {};
+            } catch {
+                return {};
+            }
+        }
+
+        function saveReactions(reactions) {
+            try {
+                localStorage.setItem(REACTION_STORAGE_KEY, JSON.stringify(reactions));
+            } catch { /* ignore storage errors */ }
+        }
+
+        function reactionKey(sender, content, keyHint = '') {
+            const session = currentSessionKey || 'global';
+            const signature = keyHint || `${sender}:${String(content || '').slice(0, 120)}`;
+            return `${session}::${signature}`;
+        }
+
+        let messageReactions = loadReactions();
+        let unreadNotifications = 0;
+        let soundEnabled = localStorage.getItem(NOTIFY_SOUND_KEY) === '1';
+        let baseTitle = document.title;
 
         const messagesDiv = document.getElementById('messages');
         const messageInput = document.getElementById('messageInput');
@@ -452,6 +913,60 @@
         const assistantNameEl = document.getElementById('assistantName');
         const refreshBtn = document.getElementById('refreshBtn');
         const logoutBtn = document.getElementById('logoutBtn');
+        const soundToggleBtn = document.getElementById('soundToggleBtn');
+
+        function updateSoundToggle() {
+            soundToggleBtn.textContent = soundEnabled ? '🔔' : '🔕';
+            soundToggleBtn.classList.toggle('active', soundEnabled);
+            soundToggleBtn.setAttribute('aria-pressed', soundEnabled ? 'true' : 'false');
+            soundToggleBtn.title = soundEnabled ? 'Reply sound on' : 'Reply sound off';
+        }
+
+        function updateDocumentTitle() {
+            document.title = unreadNotifications > 0
+                ? `(${unreadNotifications}) ${baseTitle}`
+                : baseTitle;
+        }
+
+        function clearUnreadNotifications() {
+            unreadNotifications = 0;
+            updateDocumentTitle();
+        }
+
+        function playNotificationTone() {
+            if (!soundEnabled) return;
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtx) return;
+                const context = new AudioCtx();
+                const oscillator = context.createOscillator();
+                const gain = context.createGain();
+
+                oscillator.type = 'sine';
+                oscillator.frequency.value = 880;
+                gain.gain.value = 0.0001;
+
+                oscillator.connect(gain);
+                gain.connect(context.destination);
+
+                const now = context.currentTime;
+                gain.gain.exponentialRampToValueAtTime(0.08, now + 0.01);
+                gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+
+                oscillator.start(now);
+                oscillator.stop(now + 0.18);
+                oscillator.onended = () => context.close();
+            } catch (error) {
+                console.warn('Notification tone failed:', error);
+            }
+        }
+
+        function notifyAssistantReply() {
+            if (!document.hidden) return;
+            unreadNotifications += 1;
+            updateDocumentTitle();
+            playNotificationTone();
+        }
 
         function setOnlineState(online, text = null) {
             statusDot.classList.toggle('connected', !!online);
@@ -467,15 +982,104 @@
             return `${title} · ${shortKey}`;
         }
 
-        function addMessage(sender, content) {
+        function resolvePreferredSession(sessions) {
+            const list = Array.isArray(sessions) ? sessions.filter((s) => s?.sessionKey) : [];
+            if (list.length === 0) return { selected: null, notice: '' };
+
+            const keys = new Set(list.map((s) => s.sessionKey));
+            const stored = localStorage.getItem(SESSION_STORAGE_KEY);
+            const candidates = [currentSessionKey, stored, defaultSessionKey, list[0].sessionKey].filter(Boolean);
+            const preferredKey = candidates.find((key) => keys.has(key)) || list[0].sessionKey;
+            const selected = list.find((s) => s.sessionKey === preferredKey) || list[0];
+
+            let notice = '';
+            if (currentSessionKey && !keys.has(currentSessionKey)) {
+                notice = 'Previous session is unavailable, switched to an active session.';
+            } else if (stored && !keys.has(stored)) {
+                localStorage.removeItem(SESSION_STORAGE_KEY);
+                notice = 'Saved session is unavailable, switched to an active session.';
+            }
+
+            return { selected, notice };
+        }
+
+        function addMessage(sender, content, options = {}) {
             const div = document.createElement('div');
             div.className = `message ${sender}`;
+
+            if (sender === 'miso') {
+                const avatar = document.createElement('img');
+                avatar.className = 'message-avatar';
+                avatar.src = '/favicon-32x32.png';
+                avatar.alt = 'Miso avatar';
+                avatar.loading = 'lazy';
+                avatar.decoding = 'async';
+                div.appendChild(avatar);
+            }
+
+            const contentWrap = document.createElement('div');
+            contentWrap.className = 'message-content';
+
             const bubble = document.createElement('div');
             bubble.className = 'bubble';
-            bubble.textContent = String(content || '');
-            div.appendChild(bubble);
+            renderBubbleContent(bubble, content);
+            bubble.addEventListener('click', (event) => {
+                const btn = event.target.closest('.copy-code-btn');
+                if (!btn) return;
+                event.preventDefault();
+                event.stopPropagation();
+                copyCodeFromButton(btn);
+            });
+            contentWrap.appendChild(bubble);
+
+            const shouldShowReactions = sender !== 'system';
+            if (shouldShowReactions) {
+                const key = reactionKey(sender, content, options.reactionKeyHint || options.messageId || '');
+                const row = document.createElement('div');
+                row.className = 'reaction-row';
+
+                REACTION_OPTIONS.forEach((emoji) => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'reaction-btn';
+                    btn.textContent = emoji;
+                    btn.setAttribute('aria-label', `React with ${emoji}`);
+                    btn.setAttribute('aria-pressed', 'false');
+
+                    const selected = messageReactions[key] === emoji;
+                    if (selected) {
+                        btn.classList.add('active');
+                        btn.setAttribute('aria-pressed', 'true');
+                    }
+
+                    btn.addEventListener('click', () => {
+                        const currentlySelected = messageReactions[key] === emoji;
+                        if (currentlySelected) {
+                            delete messageReactions[key];
+                        } else {
+                            messageReactions[key] = emoji;
+                        }
+                        saveReactions(messageReactions);
+                        row.querySelectorAll('.reaction-btn').forEach((node) => {
+                            const active = messageReactions[key] === node.textContent;
+                            node.classList.toggle('active', active);
+                            node.setAttribute('aria-pressed', active ? 'true' : 'false');
+                        });
+                    });
+
+                    row.appendChild(btn);
+                });
+
+                contentWrap.appendChild(row);
+            }
+
+            div.appendChild(contentWrap);
             messagesDiv.appendChild(div);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+            if (sender === 'miso' && !options.suppressNotify) {
+                notifyAssistantReply();
+            }
         }
 
         function renderHistory(messages) {
@@ -484,9 +1088,22 @@
                 addMessage('system', '📝 New session');
                 return;
             }
-            messages.forEach((msg) => {
-                addMessage(msg.role === 'user' ? 'user' : 'miso', msg.content);
+            messages.forEach((msg, index) => {
+                addMessage(msg.role === 'user' ? 'user' : 'miso', msg.content, {
+                    reactionKeyHint: `history:${msg.timestamp || index}:${msg.role || 'assistant'}`,
+                    suppressNotify: true,
+                });
             });
+        }
+
+        function renderPendingForSession(sessionKey) {
+            const pending = sendQueue.filter((item) => !item.sessionKey || item.sessionKey === sessionKey);
+            pending.forEach((item) => {
+                addMessage('user', `${item.message} ⏳`, { reactionKeyHint: `queued:${item.id}` });
+            });
+            if (pending.length > 0) {
+                addMessage('system', `${pending.length} queued message${pending.length > 1 ? 's' : ''} will retry.`);
+            }
         }
 
         async function loadConfig() {
@@ -497,7 +1114,10 @@
                     assistantNameEl.textContent = cfg.assistantName;
                     messageInput.placeholder = `Message ${cfg.assistantName}...`;
                 }
-                if (cfg?.title) document.title = cfg.title;
+                if (cfg?.title) {
+                    baseTitle = cfg.title;
+                    updateDocumentTitle();
+                }
                 if (cfg?.defaultSessionKey) defaultSessionKey = cfg.defaultSessionKey;
             } catch (error) {
                 console.warn('Config load failed:', error);
@@ -526,10 +1146,13 @@
                     return;
                 }
 
-                const stored = localStorage.getItem(SESSION_STORAGE_KEY);
-                const preferred = stored || defaultSessionKey || sessions[0].sessionKey;
-                const selected = sessions.find((s) => s.sessionKey === preferred) || sessions[0];
-                await selectSession(selected.sessionKey);
+                const { selected, notice } = resolvePreferredSession(sessions);
+                if (!selected?.sessionKey) {
+                    setOnlineState(false, 'No sessions');
+                    return;
+                }
+
+                await selectSession(selected.sessionKey, { notice });
             } catch (error) {
                 console.error('Error loading sessions:', error);
                 sessionSelect.innerHTML = '<option value="">Error</option>';
@@ -537,7 +1160,7 @@
             }
         }
 
-        async function selectSession(sessionKey) {
+        async function selectSession(sessionKey, options = {}) {
             if (!sessionKey) return;
 
             currentSessionKey = sessionKey;
@@ -549,11 +1172,19 @@
                 const response = await fetch(`/api/sessions/${encodeURIComponent(sessionKey)}/history`);
                 const data = await response.json();
                 renderHistory(data.messages || []);
-                setOnlineState(true, 'Online');
+                renderPendingForSession(sessionKey);
+                if (options.notice) addMessage('system', options.notice);
+                const queued = queueCountForSession(sessionKey);
+                setOnlineState(true, queued > 0 ? `Online · queue ${queued}` : 'Online');
+                processQueue();
             } catch (error) {
                 console.error('History load error:', error);
                 renderHistory([]);
-                setOnlineState(true, 'Online');
+                renderPendingForSession(sessionKey);
+                if (options.notice) addMessage('system', options.notice);
+                const queued = queueCountForSession(sessionKey);
+                setOnlineState(true, queued > 0 ? `Online · queue ${queued}` : 'Online');
+                processQueue();
             }
         }
 
@@ -561,41 +1192,47 @@
             if (sending || sendQueue.length === 0) return;
             if (!currentSessionKey) return;
 
+            const nextIndex = sendQueue.findIndex((item) => !item.sessionKey || item.sessionKey === currentSessionKey);
+            if (nextIndex < 0) return;
+
             sending = true;
-            const next = sendQueue.shift();
+            const [next] = sendQueue.splice(nextIndex, 1);
             savePendingQueue(sendQueue);
 
-            if (sendQueue.length > 0) {
-                setOnlineState(true, `Online · queue ${sendQueue.length}`);
-            } else {
-                setOnlineState(true, 'Online');
-            }
+            const queued = queueCountForSession(currentSessionKey);
+            setOnlineState(true, queued > 0 ? `Online · queue ${queued}` : 'Online');
 
             typingIndicator.classList.add('active');
             try {
                 const response = await fetch(`/api/sessions/${encodeURIComponent(currentSessionKey)}/send`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: next }),
+                    body: JSON.stringify({ message: next.message }),
                 });
                 const data = await response.json();
 
                 if (!data?.success) {
                     addMessage('system', data?.error || 'Send failed');
                 } else {
-                    const text = data.responseText || data.response?.text || data.response?.message;
+                    const hasSanitizedResponse = Object.prototype.hasOwnProperty.call(data || {}, 'responseText');
+                    const text = hasSanitizedResponse
+                        ? data.responseText
+                        : (data.response?.text || data.response?.message);
                     if (text && text.trim()) {
-                        addMessage('miso', text);
+                        addMessage('miso', text, { reactionKeyHint: `reply:${next.id}` });
                     }
                 }
             } catch (error) {
                 console.error('Send error:', error);
                 addMessage('system', `Send failed: ${error.message}`);
+                sendQueue.unshift(next);
+                savePendingQueue(sendQueue);
             } finally {
                 typingIndicator.classList.remove('active');
                 sending = false;
-                setOnlineState(true, sendQueue.length > 0 ? `Online · queue ${sendQueue.length}` : 'Online');
-                if (sendQueue.length > 0) processQueue();
+                const remaining = queueCountForSession(currentSessionKey);
+                setOnlineState(true, remaining > 0 ? `Online · queue ${remaining}` : 'Online');
+                if (remaining > 0) processQueue();
             }
         }
 
@@ -607,10 +1244,16 @@
                 return;
             }
 
-            addMessage('user', messageText);
+            const queuedId = queueId();
+            addMessage('user', messageText, { reactionKeyHint: `queued:${queuedId}` });
             messageInput.value = '';
             messageInput.focus();
-            sendQueue.push(messageText);
+            sendQueue.push({
+                id: queuedId,
+                sessionKey: currentSessionKey,
+                message: messageText,
+                createdAt: Date.now(),
+            });
             savePendingQueue(sendQueue);
             processQueue();
         }
@@ -641,8 +1284,19 @@
         refreshBtn.addEventListener('click', refreshCurrentSession);
         logoutBtn.addEventListener('click', logout);
         sendBtn.addEventListener('click', () => sendMessage());
+        soundToggleBtn.addEventListener('click', () => {
+            soundEnabled = !soundEnabled;
+            localStorage.setItem(NOTIFY_SOUND_KEY, soundEnabled ? '1' : '0');
+            updateSoundToggle();
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) clearUnreadNotifications();
+        });
+        window.addEventListener('focus', clearUnreadNotifications);
 
         (async () => {
+            updateSoundToggle();
             setOnlineState(false, 'Connecting...');
             await loadConfig();
             await loadSessions();
