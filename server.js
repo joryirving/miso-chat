@@ -236,18 +236,45 @@ function buildDeviceAuthPayload({ deviceId, clientId, clientMode, role, scopes, 
   ].join('|');
 }
 
+function fingerprintPublicKeyPem(publicKeyPem) {
+  const raw = derivePublicKeyRawFromPem(publicKeyPem);
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+function persistGatewayDeviceIdentity(identity) {
+  try {
+    fs.mkdirSync(path.dirname(GATEWAY_DEVICE_IDENTITY_PATH), { recursive: true });
+    fs.writeFileSync(GATEWAY_DEVICE_IDENTITY_PATH, `${JSON.stringify(identity, null, 2)}\n`, { mode: 0o600 });
+    try {
+      fs.chmodSync(GATEWAY_DEVICE_IDENTITY_PATH, 0o600);
+    } catch {}
+  } catch {}
+}
+
 function ensureGatewayDeviceIdentity() {
   if (cachedGatewayDeviceIdentity !== null) return cachedGatewayDeviceIdentity;
-  
-  // Try to load existing
+
+  // Try to load existing and self-heal bad deviceId derivation if needed.
   try {
     if (fs.existsSync(GATEWAY_DEVICE_IDENTITY_PATH)) {
       const raw = fs.readFileSync(GATEWAY_DEVICE_IDENTITY_PATH, 'utf8');
       const parsed = JSON.parse(raw);
       if (parsed?.deviceId && parsed?.publicKeyPem && parsed?.privateKeyPem) {
+        const derivedDeviceId = fingerprintPublicKeyPem(parsed.publicKeyPem);
         const publicKey = base64UrlEncode(derivePublicKeyRawFromPem(parsed.publicKeyPem));
+        const deviceId = typeof derivedDeviceId === 'string' && derivedDeviceId ? derivedDeviceId : parsed.deviceId;
+
+        if (deviceId !== parsed.deviceId) {
+          persistGatewayDeviceIdentity({
+            ...parsed,
+            version: parsed?.version === 1 ? parsed.version : 1,
+            deviceId,
+            createdAtMs: typeof parsed?.createdAtMs === 'number' ? parsed.createdAtMs : Date.now(),
+          });
+        }
+
         cachedGatewayDeviceIdentity = {
-          deviceId: parsed.deviceId,
+          deviceId,
           publicKey,
           privateKeyPem: parsed.privateKeyPem,
         };
@@ -255,16 +282,26 @@ function ensureGatewayDeviceIdentity() {
       }
     }
   } catch {}
+
   // Generate new identity
-  const { publicKey, privateKey } = require('crypto').generateKeyPairSync('ed25519');
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
   const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
-  const crypto = require('crypto');
-  const fingerprint = crypto.createHash('sha256').update(publicKeyPem).digest('hex');
-  const identity = { deviceId: fingerprint, publicKeyPem, privateKeyPem };
-  // Save it
-  try { fs.mkdirSync(require('path').dirname(GATEWAY_DEVICE_IDENTITY_PATH), { recursive: true }); fs.writeFileSync(GATEWAY_DEVICE_IDENTITY_PATH, JSON.stringify(identity, null, 2)); } catch {}
-  cachedGatewayDeviceIdentity = { deviceId: identity.deviceId, publicKey: base64UrlEncode(derivePublicKeyRawFromPem(publicKeyPem)), privateKeyPem };
+  const deviceId = fingerprintPublicKeyPem(publicKeyPem);
+  const identity = {
+    version: 1,
+    deviceId,
+    publicKeyPem,
+    privateKeyPem,
+    createdAtMs: Date.now(),
+  };
+  persistGatewayDeviceIdentity(identity);
+
+  cachedGatewayDeviceIdentity = {
+    deviceId,
+    publicKey: base64UrlEncode(derivePublicKeyRawFromPem(publicKeyPem)),
+    privateKeyPem,
+  };
   return cachedGatewayDeviceIdentity;
 }
 
@@ -274,14 +311,15 @@ function loadGatewayDeviceIdentity() {
   try {
     const raw = fs.readFileSync(GATEWAY_DEVICE_IDENTITY_PATH, 'utf8');
     const parsed = JSON.parse(raw);
-    if (!parsed?.deviceId || !parsed?.publicKeyPem || !parsed?.privateKeyPem) {
+    if (!parsed?.publicKeyPem || !parsed?.privateKeyPem) {
       cachedGatewayDeviceIdentity = null;
       return null;
     }
 
     const publicKey = base64UrlEncode(derivePublicKeyRawFromPem(parsed.publicKeyPem));
+    const deviceId = fingerprintPublicKeyPem(parsed.publicKeyPem);
     cachedGatewayDeviceIdentity = {
-      deviceId: parsed.deviceId,
+      deviceId,
       publicKey,
       privateKeyPem: parsed.privateKeyPem,
     };
