@@ -1237,7 +1237,10 @@
 
                 if (!Array.isArray(messages)) return;
 
-                if (messages.length < historyMessageKeys.size) {
+                const anyOverlap = messages.some((msg, index) => historyMessageKeys.has(historyMessageKey(msg, index)));
+                const likelyReset = messages.length < historyMessageKeys.size && !anyOverlap;
+
+                if (likelyReset) {
                     renderHistory(messages);
                     renderPendingForSession(sessionKey);
                     setOnlineState(true, queueStatusText(sessionKey));
