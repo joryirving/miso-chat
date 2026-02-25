@@ -486,7 +486,7 @@ function gatewayChatSend({ sessionKey, message, timeoutSeconds, origin }) {
       done(new Error(`Gateway websocket timeout after ${Math.round(timeoutMs / 1000)}s`));
     }, timeoutMs);
 
-    const requestedScopes = ['operator.read', 'operator.write', 'chat.send', 'sessions.send', 'sessions.list', 'sessions.history'];
+    const requestedScopes = ['operator.read', 'operator.write', 'operator.pairing', 'chat.send', 'sessions.send', 'sessions.list', 'sessions.history'];
     const hasDeviceIdentity = Boolean(ensureGatewayDeviceIdentity());
     let connectSent = false;
     let challengeWaitTimer = null;
