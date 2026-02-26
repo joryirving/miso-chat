@@ -584,6 +584,38 @@
             color: var(--text-secondary);
         }
         
+        .emoji-picker {
+            position: absolute;
+            bottom: 60px;
+            right: 10px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px;
+            display: none;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 4px;
+            max-width: 280px;
+            z-index: 100;
+        }
+
+        .emoji-picker.open {
+            display: grid;
+        }
+
+        .emoji-picker button {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+        }
+
+        .emoji-picker button:hover {
+            background: var(--bg-tertiary);
+        }
+
         .send-btn {
             width: 52px;
             height: 52px;
@@ -714,6 +746,7 @@
         <div class="input-wrapper">
             <textarea id="messageInput" rows="1" placeholder="Message Miso... (Enter to send, Shift+Enter for new line)" autocomplete="off" autocorrect="off" autocapitalize="sentences"></textarea>
         </div>
+        <button type="button" class="icon-btn" id="emojiBtn" title="Add emoji">😊</button>
         <button type="button" class="send-btn" id="sendBtn" onclick="sendMessage()">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -1813,6 +1846,38 @@
             messageInput.style.height = `${Math.max(nextHeight, 52)}px`;
         }
 
+        // Emoji picker
+        const emojiPicker = document.createElement('div');
+        emojiPicker.className = 'emoji-picker';
+        const emojis = ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','😊','😇','🥰','😍','🤩','😘','😗','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','😎','🤓','🧐','😕','😟','🙁','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','☠️','💩','🤡','👹','👺','👻','👽','👾','🤖','😺','😸','😹','😻','😼','😽','🙀','😿','😾','👍','👎','👌','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','👇','☝️','✋','🤚','🖐','🖖','👋','🤏','✍️','🙏','💪','🦾','🦿','🦵','🦶','👂','🦻','👃','🧠','🫀','🫁','🦷','🦴','👀','👁','👅','👄','❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝','💟','🔥','⭐','🌟','✨','💫','💥','💢','💦','💨','🕐','🕑','🕒','🕓','🕔','🕕','🕖','🕗','🕘','🕙','🕚','🕛','✅','❌','❓','❗','💯','🔔','🔕','🔇','🔈','🔉','🔊','📢','📣','💬','💭','🗯','♠️','♣️','♥️','♦️','🎉','🎊','🎁','🏆','🥇','🥈','🥉','⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🥏','🎱','🪀','🏓','🏸','🏒','🏑','🥍','🏏','🪃','🥅','⛳','🪁','🏹','🎣','🤿','🥊','🥋','🎽','🛹','🛼','🛷','⛸','🥌','🎿','⛷','🏂','🪂','🏋️','🤼','🤸','⛹️','🤺','🤾','🏌️','🏇','🧘','🏄','🏊','🤽','🚣','🧗','🚴','🚵','🎖️','🎗️','💻','🖥️','🖨️','⌨️','🖱️','💾','💿','📀','📼','📷','📸','📹','🎥','📽️','🎞️','📞','☎️','📟','📠','📺','📻','🎙️','🎚️','🎛️','🧭','⏱️','⏲️','⏰','🕰️','⌛','⏳','📡','🔋','🔌','💡','🔦','🕯️','🪔','🧯','🛢️','💸','💵','💴','💶','💷','🪙','💰','💳','💎','⚖️','🪜','🧰','🪛','🔧','🔨','⚒️','🛠️','⛏️','🪚','🔩','⚙️','🪤','🧱','⛓️','🧲','🔫','💣','🧨','🪓','🔪','🗡️','⚔️','🛡️','🚬','⚰️','⚱️','🏺','🔮','📿','🧿','💈','⚗️','🔭','🔬','🕳️','🩹','🩺','💊','💉','🩸','🧬','🦠','🧫','🧪','🌡️','🧹','🪠','🧺','🧻','🚽','🚿','🛁','🛀','🧼','🪥','🪒','🧽','🪣','🧴','🛎️','🔑','🗝️','🚪','🪑','🛋️','🛏️','🛌','🧸','🪆','🖼️','🪞','🪟','🛍️','🛒','🎁','🎈','🎏','🎀','🪄','🪅','🎊','🎉','🎎','🏮','🎐','🧧','✉️','📩','📨','📧','💌','📥','📤','📦','🏷️','📪','📫','📬','📭','📮','📯','📜','📃','📄','📑','🧾','📊','📈','📉','🗒️','🗓️','📆','📅','🗑️','📇','🗃️','🗳️','🗄️','📋','📁','📂','🗂️','🗞️','📰','📓','📔','📒','📕','📗','📘','📙','📚','📖','🔖','🧷','🔗','📎','🖇️','📐','📏','🧮','📌','📍','✂️','🖊️','🖋️','✒️','🖌️','🖍️','📝','✏️','🔍','🔎','🔏','🔐','🔒','🔓'];
+        
+        for (const emoji of emojis) {
+            const btn = document.createElement('button');
+            btn.textContent = emoji;
+            btn.onclick = () => insertEmoji(emoji);
+            emojiPicker.appendChild(btn);
+        }
+        
+        document.querySelector('.input-wrapper').appendChild(emojiPicker);
+        
+        function insertEmoji(emoji) {
+            const start = messageInput.selectionStart;
+            const end = messageInput.selectionEnd;
+            const text = messageInput.value;
+            messageInput.value = text.slice(0, start) + emoji + text.slice(end);
+            messageInput.selectionStart = messageInput.selectionEnd = start + emoji.length;
+            messageInput.focus();
+            emojiPicker.classList.remove('open');
+        }
+        
+        const emojiBtn = document.getElementById('emojiBtn');
+        emojiBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            emojiPicker.classList.toggle('open');
+        });
+        
+        document.addEventListener('click', () => emojiPicker.classList.remove('open'));
+        
         messageInput.addEventListener('input', resizeMessageInput);
         messageInput.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
