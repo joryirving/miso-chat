@@ -159,6 +159,7 @@
             gap: 16px;
             -webkit-overflow-scrolling: touch;
             scroll-behavior: smooth;
+            min-height: 0; /* Important for flex child to shrink */
         }
         
         .message {
@@ -644,7 +645,9 @@
         /* Typing indicator */
         .typing {
             display: none;
-            padding: 0 16px 12px;
+            padding: 8px 16px;
+            z-index: 10;
+            position: relative;
         }
         
         .typing.active {
