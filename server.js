@@ -519,7 +519,7 @@ app.post('/api/sessions/:sessionKey/send', isAuthenticated, async (req, res) => 
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    console.log(`Sending to ${sessionKey}:`, message);
+    console.log(`Sending to ${sessionKey}: [message hidden]`);
 
     const timeoutSeconds = Number(process.env.SEND_TIMEOUT_SECONDS || 180);
     const payload = await gatewayChatSend({ sessionKey, message, timeoutSeconds });
