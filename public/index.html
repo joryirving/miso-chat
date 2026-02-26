@@ -1225,6 +1225,9 @@
 
         let messageReactions = loadReactions();
         let unreadNotifications = 0;
+        let titleBlinkInterval = null;
+        const ORIGINAL_TITLE = 'Miso Chat';
+        const NEW_MESSAGE_TITLE = '💬 New message';
         let soundEnabled = localStorage.getItem(NOTIFY_SOUND_KEY) === '1';
         let baseTitle = document.title;
 
@@ -1248,9 +1251,25 @@
         }
 
         function updateDocumentTitle() {
-            document.title = unreadNotifications > 0
-                ? `(${unreadNotifications}) ${baseTitle}`
-                : baseTitle;
+            // Stop any existing blink
+            if (titleBlinkInterval) {
+                clearInterval(titleBlinkInterval);
+                titleBlinkInterval = null;
+                document.title = baseTitle;
+            }
+            
+            if (unreadNotifications > 0) {
+                document.title = `(${unreadNotifications}) ${baseTitle}`;
+                
+                // Add blinking effect for unread messages
+                let showNew = true;
+                titleBlinkInterval = setInterval(() => {
+                    document.title = showNew ? NEW_MESSAGE_TITLE : `(${unreadNotifications}) ${baseTitle}`;
+                    showNew = !showNew;
+                }, 2000);
+            } else {
+                document.title = baseTitle;
+            }
         }
 
         function clearUnreadNotifications() {
@@ -1269,14 +1288,15 @@
 
                 oscillator.type = 'sine';
                 oscillator.frequency.value = 880;
-                gain.gain.value = 0.0001;
+                gain.gain.value = 0.001;
 
                 oscillator.connect(gain);
                 gain.connect(context.destination);
 
                 const now = context.currentTime;
-                gain.gain.exponentialRampToValueAtTime(0.08, now + 0.01);
-                gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+                // Louder volume: ramp to 0.5 (50% instead of 8%)
+                gain.gain.exponentialRampToValueAtTime(0.5, now + 0.01);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
 
                 oscillator.start(now);
                 oscillator.stop(now + 0.18);
