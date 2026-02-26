@@ -307,6 +307,17 @@
             line-height: 1.4;
         }
 
+        .message-link {
+            color: #7dd3fc;
+            text-decoration: underline;
+            text-decoration-thickness: 1px;
+            text-underline-offset: 2px;
+        }
+
+        .message-link:hover {
+            color: #93c5fd;
+        }
+
         .code-block {
             margin-top: 8px;
             border: 1px solid var(--border);
@@ -702,6 +713,7 @@
 
         const CODE_BLOCK_REGEX = /```([\w+-]+)?\n([\s\S]*?)```/g;
         const INLINE_CODE_REGEX = /`([^`\n]+)`/g;
+        const URL_REGEX = /(https?:\/\/[^\s<>"{}|\\^`\[\]]+)/g;
 
         function escapeHtml(value) {
             return String(value || '')
@@ -838,34 +850,77 @@
 
         function appendTextWithInlineCode(container, source) {
             const text = String(source || '');
-            let cursor = 0;
-            let match;
-            while ((match = INLINE_CODE_REGEX.exec(text)) !== null) {
-                const plain = text.slice(cursor, match.index);
-                if (plain) container.appendChild(document.createTextNode(plain));
-
-                const rawCode = match[1];
-                const inline = document.createElement('span');
-                inline.className = 'code-inline';
-
-                const codeNode = document.createElement('code');
-                codeNode.textContent = rawCode;
-                inline.appendChild(codeNode);
-
-                const copyBtn = document.createElement('button');
-                copyBtn.type = 'button';
-                copyBtn.className = 'copy-code-btn';
-                copyBtn.textContent = 'Copy';
-                copyBtn.dataset.copyPayload = encodeCopyPayload(rawCode);
-                copyBtn.setAttribute('aria-label', 'Copy inline code');
-                inline.appendChild(copyBtn);
-
-                container.appendChild(inline);
-                cursor = match.index + match[0].length;
+            
+            // First pass: split text into URL, inline code, and plain segments
+            const segments = [];
+            let lastEnd = 0;
+            
+            // Find all URLs and inline code
+            const urlMatches = [...text.matchAll(URL_REGEX)];
+            const codeMatches = [...text.matchAll(INLINE_CODE_REGEX)];
+            
+            // Combine and sort by position
+            const allMatches = [
+                ...urlMatches.map(m => ({ type: 'url', ...m })),
+                ...codeMatches.map(m => ({ type: 'code', ...m }))
+            ].sort((a, b) => a.index - b.index);
+            
+            for (const match of allMatches) {
+                // Skip overlapping matches
+                if (match.index < lastEnd) continue;
+                
+                // Add plain text before this match
+                if (match.index > lastEnd) {
+                    segments.push({ type: 'text', content: text.slice(lastEnd, match.index) });
+                }
+                
+                if (match.type === 'url') {
+                    segments.push({ type: 'url', content: match[1] });
+                } else {
+                    segments.push({ type: 'code', content: match[1] });
+                }
+                lastEnd = match.index + match[0].length;
             }
+            
+            // Add remaining text
+            if (lastEnd < text.length) {
+                segments.push({ type: 'text', content: text.slice(lastEnd) });
+            }
+            
+            // Render segments
+            for (const seg of segments) {
+                if (seg.type === 'text') {
+                    if (seg.content) container.appendChild(document.createTextNode(seg.content));
+                } else if (seg.type === 'url') {
+                    const link = document.createElement('a');
+                    link.href = seg.content;
+                    link.textContent = seg.content;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.className = 'message-link';
+                    container.appendChild(link);
+                } else if (seg.type === 'code') {
+                    const rawCode = seg.content;
+                    const inline = document.createElement('span');
+                    inline.className = 'code-inline';
 
-            const tail = text.slice(cursor);
-            if (tail) container.appendChild(document.createTextNode(tail));
+                    const codeNode = document.createElement('code');
+                    codeNode.textContent = rawCode;
+                    inline.appendChild(codeNode);
+
+                    const copyBtn = document.createElement('button');
+                    copyBtn.type = 'button';
+                    copyBtn.className = 'copy-code-btn';
+                    copyBtn.textContent = 'Copy';
+                    copyBtn.dataset.copyPayload = encodeCopyPayload(rawCode);
+                    copyBtn.setAttribute('aria-label', 'Copy inline code');
+                    inline.appendChild(copyBtn);
+
+                    container.appendChild(inline);
+                }
+            }
+            
+            URL_REGEX.lastIndex = 0;
             INLINE_CODE_REGEX.lastIndex = 0;
         }
 
