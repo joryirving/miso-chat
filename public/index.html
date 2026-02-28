@@ -1731,6 +1731,7 @@
             setOnlineState(true, queueStatusText(currentSessionKey));
 
             typingIndicator.classList.add('active');
+                console.log('Typing indicator activated');
             try {
                 const response = await fetch(`/api/sessions/${encodeURIComponent(currentSessionKey)}/send`, {
                     method: 'POST',
@@ -1753,14 +1754,14 @@
                     }
                     
                     // Remove typing indicator after getting response
-                    typingIndicator.classList.remove('active');
+                    typingIndicator.classList.remove('active'); console.log('Typing indicator removed');
                 }
             } catch (error) {
                 console.error('Send error:', error);
                 addMessage('system', `Send failed: ${error.message}`);
                 sendQueue.unshift(next);
                 savePendingQueue(sendQueue);
-                typingIndicator.classList.remove('active');
+                typingIndicator.classList.remove('active'); console.log('Typing indicator removed');
             } finally {
                 sending = false;
                 const remaining = queueCountForSession(currentSessionKey);
