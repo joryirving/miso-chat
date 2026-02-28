@@ -238,7 +238,7 @@ const GATEWAY_WS_WAIT_CHALLENGE_MS = Number(process.env.GATEWAY_WS_WAIT_CHALLENG
 
 // Persistent WebSocket manager for gateway connections
 const gatewayWsManager = new GatewayWsManager({
-  wsUrl: GATEWAY_WS_URL,
+  wsUrl: typeof GATEWAY_WS_URL === 'function' ? GATEWAY_WS_URL() : GATEWAY_WS_URL,
   clientId: GATEWAY_WS_CLIENT_ID,
   clientMode: GATEWAY_WS_CLIENT_MODE,
   headers: {},
@@ -622,17 +622,16 @@ async function gatewayChatSendWithManager({ sessionKey, message, timeoutSeconds 
 
     gatewayWsManager.on('frame', handleResponse);
 
-    gatewayWsManager.ws.send(JSON.stringify({
-      type: 'req',
-      id: sendId,
-      method: 'chat.send',
-      params: {
-        sessionKey,
-        message,
-        deliver: false,
-        idempotencyKey: gatewayWsManager.createRequestId('msg'),
-      },
-    })).catch((err) => {
+    gatewayWsManager.send('chat.send', {
+      sessionKey,
+      message,
+      deliver: false,
+      idempotencyKey: gatewayWsManager.createRequestId('msg'),
+    }, 180).then((frame) => {
+      clearTimeout(timeout);
+      gatewayWsManager.off('frame', handleResponse);
+      resolve(extractGatewayResult(frame));
+    }).catch((err) => {
       clearTimeout(timeout);
       gatewayWsManager.off('frame', handleResponse);
       reject(err);
@@ -643,7 +642,8 @@ async function gatewayChatSendWithManager({ sessionKey, message, timeoutSeconds 
 // Per-request WebSocket fallback (original implementation)
 function gatewayChatSendFallback({ sessionKey, message, timeoutSeconds, origin }) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(GATEWAY_WS_URL, { headers: buildGatewayWsHeaders({ origin }) });
+    const wsUrl = typeof GATEWAY_WS_URL === 'function' ? GATEWAY_WS_URL() : GATEWAY_WS_URL;
+    const ws = new WebSocket(wsUrl, { headers: buildGatewayWsHeaders({ origin }) });
     const connectId = createRequestId('connect');
     const sendId = createRequestId('chat-send');
     const timeoutMs = Math.max(1000, Number(timeoutSeconds || 180) * 1000);
