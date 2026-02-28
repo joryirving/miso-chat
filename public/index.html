@@ -557,10 +557,28 @@
             padding: calc(var(--safe-area-bottom) + 12px) 16px 16px;
             border-top: 1px solid var(--border);
             display: flex;
-            gap: 12px;
+            gap: 8px;
             flex-shrink: 0;
             -webkit-backdrop-filter: blur(20px);
             backdrop-filter: blur(20px);
+        }
+
+        @media (max-width: 767px) {
+            .input-area {
+                gap: 4px;
+                padding-bottom: calc(var(--safe-area-bottom) + 8px);
+            }
+            
+            .emoji-btn {
+                width: 40px;
+                height: 40px;
+                padding: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 18px;
+                border-radius: 50%;
+            }
         }
         
         .input-wrapper {
@@ -595,12 +613,12 @@
         }
         
         .emoji-picker {
-            position: absolute;
-            bottom: 60px;
+            position: fixed;
+            bottom: 70px;
             right: 10px;
             background: var(--bg-secondary);
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: 12px;
             padding: 8px;
             display: none;
             grid-template-columns: repeat(6, 1fr);
@@ -609,6 +627,20 @@
             max-height: 200px;
             overflow-y: auto;
             z-index: 100;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        @media (max-width: 767px) {
+            .emoji-picker {
+                position: fixed;
+                bottom: 70px;
+                left: 10px;
+                right: 10px;
+                max-width: none;
+                width: calc(100% - 20px);
+                max-height: 240px;
+                grid-template-columns: repeat(8, 1fr);
+            }
         }
 
         @media (min-width: 768px) {
@@ -654,6 +686,14 @@
         
         .send-btn:active {
             transform: scale(0.92);
+        }
+
+        @media (max-width: 767px) {
+            .send-btn {
+                width: 44px;
+                height: 44px;
+                font-size: 18px;
+            }
         }
         
         .send-btn:disabled {
