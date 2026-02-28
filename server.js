@@ -244,7 +244,10 @@ const gatewayWsManager = new GatewayWsManager({
   wsUrl: getGatewayWsUrl(),
   clientId: GATEWAY_WS_CLIENT_ID,
   clientMode: GATEWAY_WS_CLIENT_MODE,
-  headers: {},
+  headers: {
+    ...(GATEWAY_TOKEN ? { Authorization: `Bearer ${GATEWAY_TOKEN}` } : {}),
+    ...(GATEWAY_WS_ORIGIN ? { Origin: GATEWAY_WS_ORIGIN } : {}),
+  },
   maxReconnectAttempts: 5,
   reconnectDelay: 1000,
   reconnectBackoff: 2,
@@ -600,46 +603,23 @@ async function gatewayChatSendWithManager({ sessionKey, message, timeoutSeconds 
     return null; // Signal to use fallback
   }
 
-  const timeoutMs = Math.max(1000, Number(timeoutSeconds || 180) * 1000);
-  const sendId = gatewayWsManager.createRequestId('chat-send');
-
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error(`Gateway manager request timeout after ${Math.round(timeoutMs / 1000)}s`));
-    }, timeoutMs);
-
-    // Set up one-time listener for this specific request
-    const handleResponse = (frame) => {
-      if (!frame.id || frame.id !== sendId) return;
-      
-      clearTimeout(timeout);
-      gatewayWsManager.off('frame', handleResponse);
-
-      const error = extractGatewayError(frame);
-      if (error) {
-        reject(new Error(error));
-      } else {
-        resolve(extractGatewayResult(frame));
-      }
-    };
-
-    gatewayWsManager.on('frame', handleResponse);
-
-    gatewayWsManager.send('chat.send', {
+  // gatewayWsManager.send() handles timeouts internally
+  try {
+    const frame = await gatewayWsManager.send('chat.send', {
       sessionKey,
       message,
       deliver: false,
       idempotencyKey: gatewayWsManager.createRequestId('msg'),
-    }, 180).then((frame) => {
-      clearTimeout(timeout);
-      gatewayWsManager.off('frame', handleResponse);
-      resolve(extractGatewayResult(frame));
-    }).catch((err) => {
-      clearTimeout(timeout);
-      gatewayWsManager.off('frame', handleResponse);
-      reject(err);
-    });
-  });
+    }, timeoutSeconds || 180);
+
+    const error = extractGatewayError(frame);
+    if (error) {
+      throw new Error(error);
+    }
+    return extractGatewayResult(frame);
+  } catch (err) {
+    throw err; // Let main function handle fallback
+  }
 }
 
 // Per-request WebSocket fallback (original implementation)
