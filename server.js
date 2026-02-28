@@ -591,7 +591,57 @@ function extractGatewayResult(frame) {
   return frame;
 }
 
-function gatewayChatSend({ sessionKey, message, timeoutSeconds, origin }) {
+// Use persistent WebSocket manager if available and connected, otherwise fall back to per-request WS
+async function gatewayChatSendWithManager({ sessionKey, message, timeoutSeconds }) {
+  if (!gatewayWsManager.isConnected()) {
+    return null; // Signal to use fallback
+  }
+
+  const timeoutMs = Math.max(1000, Number(timeoutSeconds || 180) * 1000);
+  const sendId = gatewayWsManager.createRequestId('chat-send');
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`Gateway manager request timeout after ${Math.round(timeoutMs / 1000)}s`));
+    }, timeoutMs);
+
+    // Set up one-time listener for this specific request
+    const handleResponse = (frame) => {
+      if (!frame.id || frame.id !== sendId) return;
+      
+      clearTimeout(timeout);
+      gatewayWsManager.off('frame', handleResponse);
+
+      const error = extractGatewayError(frame);
+      if (error) {
+        reject(new Error(error));
+      } else {
+        resolve(extractGatewayResult(frame));
+      }
+    };
+
+    gatewayWsManager.on('frame', handleResponse);
+
+    gatewayWsManager.ws.send(JSON.stringify({
+      type: 'req',
+      id: sendId,
+      method: 'chat.send',
+      params: {
+        sessionKey,
+        message,
+        deliver: false,
+        idempotencyKey: gatewayWsManager.createRequestId('msg'),
+      },
+    })).catch((err) => {
+      clearTimeout(timeout);
+      gatewayWsManager.off('frame', handleResponse);
+      reject(err);
+    });
+  });
+}
+
+// Per-request WebSocket fallback (original implementation)
+function gatewayChatSendFallback({ sessionKey, message, timeoutSeconds, origin }) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(GATEWAY_WS_URL, { headers: buildGatewayWsHeaders({ origin }) });
     const connectId = createRequestId('connect');
@@ -739,6 +789,22 @@ function gatewayChatSend({ sessionKey, message, timeoutSeconds, origin }) {
       }
     });
   });
+}
+
+// Main gatewayChatSend - tries persistent manager first, falls back to per-request
+async function gatewayChatSend({ sessionKey, message, timeoutSeconds, origin }) {
+  // Try persistent manager first
+  try {
+    const result = await gatewayChatSendWithManager({ sessionKey, message, timeoutSeconds });
+    if (result !== null) {
+      return result; // Used persistent manager successfully
+    }
+  } catch (err) {
+    console.warn('⚠️ Persistent WS manager failed, falling back to per-request:', err.message);
+  }
+  
+  // Fall back to per-request WebSocket
+  return gatewayChatSendFallback({ sessionKey, message, timeoutSeconds, origin });
 }
 
 const ANNOUNCE_NOISE_MARKERS = ['ANNOUNCE_SKIP', 'Agent-to-agent announce step.'];
