@@ -229,6 +229,9 @@ const GATEWAY_WS_URL = process.env.GATEWAY_WS_URL || (() => {
     return 'ws://openclaw.llm.svc.cluster.local:18789';
   }
 })();
+
+// Helper function to get GATEWAY_WS_URL value (handles both string and function types)
+const getGatewayWsUrl = () => typeof GATEWAY_WS_URL === 'function' ? GATEWAY_WS_URL() : GATEWAY_WS_URL;
 const GATEWAY_WS_ORIGIN = process.env.GATEWAY_WS_ORIGIN || '';
 const GATEWAY_WS_CLIENT_ID = process.env.GATEWAY_WS_CLIENT_ID || 'webchat-ui';
 const GATEWAY_WS_CLIENT_MODE = process.env.GATEWAY_WS_CLIENT_MODE || 'webchat';
@@ -238,7 +241,7 @@ const GATEWAY_WS_WAIT_CHALLENGE_MS = Number(process.env.GATEWAY_WS_WAIT_CHALLENG
 
 // Persistent WebSocket manager for gateway connections
 const gatewayWsManager = new GatewayWsManager({
-  wsUrl: typeof GATEWAY_WS_URL === 'function' ? GATEWAY_WS_URL() : GATEWAY_WS_URL,
+  wsUrl: getGatewayWsUrl(),
   clientId: GATEWAY_WS_CLIENT_ID,
   clientMode: GATEWAY_WS_CLIENT_MODE,
   headers: {},
@@ -642,7 +645,7 @@ async function gatewayChatSendWithManager({ sessionKey, message, timeoutSeconds 
 // Per-request WebSocket fallback (original implementation)
 function gatewayChatSendFallback({ sessionKey, message, timeoutSeconds, origin }) {
   return new Promise((resolve, reject) => {
-    const wsUrl = typeof GATEWAY_WS_URL === 'function' ? GATEWAY_WS_URL() : GATEWAY_WS_URL;
+    const wsUrl = getGatewayWsUrl();
     const ws = new WebSocket(wsUrl, { headers: buildGatewayWsHeaders({ origin }) });
     const connectId = createRequestId('connect');
     const sendId = createRequestId('chat-send');
@@ -1000,7 +1003,7 @@ server.listen(PORT, async () => {
 🎉 ${APP_TITLE} server running on port ${PORT}
    
    Gateway: ${GATEWAY_URL}
-   Gateway WS: ${typeof GATEWAY_WS_URL === 'function' ? GATEWAY_WS_URL() : GATEWAY_WS_URL}
+   Gateway WS: ${getGatewayWsUrl()}
    Gateway WS Origin: ${GATEWAY_WS_ORIGIN || '(none)'}
    Gateway WS Client: ${GATEWAY_WS_CLIENT_ID} (${GATEWAY_WS_CLIENT_MODE})
    Gateway Device Identity: ${fs.existsSync(GATEWAY_DEVICE_IDENTITY_PATH) ? GATEWAY_DEVICE_IDENTITY_PATH : 'missing'}
