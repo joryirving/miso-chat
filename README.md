@@ -104,6 +104,21 @@ See: `lib/gateway-ws.js` for implementation details (issue #111, parent #110)
 - `GET /api/messages/:messageId/reactions` - Get reactions for a message
 - `POST /api/messages/:messageId/reactions` - Toggle a reaction (add/remove)
 
+## Contributing & Releases
+
+### Before Release Checklist
+- [ ] Update CHANGELOG.md with changes
+- [ ] Update version in package.json
+- [ ] Ensure all tests pass (`npm test`)
+- [ ] Run linting (`npm run lint`)
+- [ ] Check for security vulnerabilities (`npm audit`)
+- [ ] Verify README.md is current
+- [ ] Test WebSocket reconnection manually
+
+### Issues & PRs
+- [Open Issues](https://github.com/joryirving/miso-chat/issues)
+- [Open PRs](https://github.com/joryirving/miso-chat/pulls)
+
 ## License
 
 MIT License - see [LICENSE](LICENSE).
