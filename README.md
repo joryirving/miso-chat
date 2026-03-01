@@ -72,6 +72,19 @@ npm run test   # Run tests
 npm run lint   # Lint
 ```
 
+
+## API Endpoints
+
+### Sessions
+- `GET /api/sessions` - List all sessions
+- `GET /api/sessions/:sessionKey/history` - Get session message history
+- `POST /api/sessions/:sessionKey/send` - Send a message
+
+### Reactions
+- `GET /api/reactions/:sessionKey` - Get all reactions for a session
+- `GET /api/messages/:messageId/reactions` - Get reactions for a message
+- `POST /api/messages/:messageId/reactions` - Toggle a reaction (add/remove)
+
 ## License
 
 MIT License - see [LICENSE](LICENSE).

@@ -613,9 +613,9 @@
         }
         
         .emoji-picker {
-            position: fixed;
             bottom: 70px;
             right: 10px;
+>>>>>>> origin/main
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             border-radius: 12px;
@@ -648,6 +648,14 @@
                 grid-template-columns: repeat(8, 1fr);
                 max-width: 280px;
                 max-height: 300px;
+            }
+        }
+
+        @media (max-width: 767px) {
+            .emoji-picker {
+                left: 50%;
+                transform: translateX(-50%);
+                right: auto;
             }
         }
 
@@ -1541,8 +1549,10 @@
 
                     if (consumeLocalAssistantEcho(msg.content)) return;
 
+                    // Include content snippet to ensure unique reaction keys even with duplicate timestamps
+                    const contentSnippet = String(msg.content || '').slice(0, 40).replace(/\s+/g, '');
                     addMessage(sender, msg.content, {
-                        reactionKeyHint: `history:${msg.timestamp || index}:${msg.role || 'assistant'}`,
+                        reactionKeyHint: `history:${msg.timestamp || index}:${msg.role || 'assistant'}:${contentSnippet}`,
                         toolCalls: msg.toolCalls,
                     });
                 });
@@ -1656,8 +1666,10 @@
 
             messages.forEach((msg, index) => {
                 historyMessageKeys.add(historyMessageKey(msg, index));
+                // Include content snippet to ensure unique reaction keys even with duplicate timestamps
+                const contentSnippet = String(msg.content || '').slice(0, 40).replace(/\s+/g, '');
                 addMessage(msg.role === 'user' ? 'user' : 'miso', msg.content, {
-                    reactionKeyHint: `history:${msg.timestamp || index}:${msg.role || 'assistant'}`,
+                    reactionKeyHint: `history:${msg.timestamp || index}:${msg.role || 'assistant'}:${contentSnippet}`,
                     suppressNotify: true,
                     toolCalls: msg.toolCalls,
                 });
