@@ -73,6 +73,25 @@ npm run lint   # Lint
 ```
 
 
+## Testing
+
+### WebSocket Reconnection
+
+The `GatewayWsManager` includes automatic reconnection with exponential backoff:
+- ✅ **Tested**: Connection loss recovery (server restart, network interruption)
+- ✅ **Tested**: Exponential backoff delays (1s, 2s, 4s, 8s...)
+- ✅ **Tested**: Max reconnection attempts limit (default: 5)
+- ✅ **Tested**: Origin preservation across reconnections
+- ✅ **Tested**: Event emission for `reconnecting`, `reconnect-error`, `reconnect-failed`
+
+Manual testing performed by:
+1. Starting miso-chat with active gateway connection
+2. Stopping the OpenClaw gateway service
+3. Observing reconnection attempts in logs
+4. Restarting gateway - connection automatically restored
+
+See: `lib/gateway-ws.js` for implementation details (issue #111, parent #110)
+
 ## API Endpoints
 
 ### Sessions
