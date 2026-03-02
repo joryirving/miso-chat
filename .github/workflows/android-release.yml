@@ -42,7 +42,14 @@ jobs:
           cd android
           ./gradlew assembleDebug
         
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: miso-chat-debug.apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          
       - name: Upload Release Asset
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
           files: android/app/build/outputs/apk/debug/*.apk
