@@ -17,8 +17,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.x'
           
+      - name: Verify Node version
+        run: node --version && npm --version
+        
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
