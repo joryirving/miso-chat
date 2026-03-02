@@ -826,12 +826,14 @@ app.get('/api/sessions', isAuthenticated, async (req, res) => {
     const payload = unwrapToolResult(result);
     const sessions = (payload?.sessions || []).map((s) => ({
       sessionKey: s.key || s.sessionKey || s.sessionId,
-      displayName: s.displayName || s.key || s.sessionKey,
+      displayName: s.displayName || s.agentName || s.key || s.sessionKey,
       updatedAt: s.updatedAt,
       kind: s.kind,
       channel: s.channel,
       lastMessage: s.lastMessage,
       title: s.derivedTitle || s.title,
+      agentId: s.agentId,
+      agentName: s.agentName,
     }));
 
     const deduped = [];
