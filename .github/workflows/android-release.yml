@@ -32,7 +32,10 @@ jobs:
         run: npm ci
         
       - name: Build Debug APK
-        run: npx cap sync android && npx cap build android
+        run: |
+          npx cap sync android
+          cd android
+          ./gradlew assembleDebug
         
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
