@@ -824,7 +824,6 @@
         <div class="header-controls">
             <button class="icon-btn" id="themeToggleBtn" title="Toggle theme" aria-label="Toggle theme">🌙</button>
             <button class="icon-btn" id="refreshBtn" title="Refresh" aria-label="Refresh">↻</button>
-            <button class="icon-btn" id="themeToggleBtn" title="Toggle light mode" aria-label="Toggle light mode">🌙</button>
             <button class="icon-btn" id="soundToggleBtn" title="Toggle reply sound" aria-label="Toggle reply sound" aria-pressed="false">🔕</button>
             <select id="sessionSelect" class="session-select" onchange="selectSession(this.value)">
                 <option value="">Loading sessions...</option>
@@ -853,7 +852,7 @@
     
     <div class="input-area">
         <div class="input-wrapper">
-            <textarea id="messageInput" rows="1" placeholder="Message Miso... (Enter to send, Shift+Enter for new line)" autocomplete="off" autocorrect="off" autocapitalize="sentences"></textarea>
+            <textarea id="messageInput" rows="1" placeholder="Message Miso..." autocomplete="off" autocorrect="off" autocapitalize="sentences"></textarea>
         </div>
         <button type="button" class="emoji-btn" id="emojiBtn" title="Add emoji">😊</button>
         <button type="button" class="send-btn" id="sendBtn" onclick="sendMessage()">
@@ -2130,21 +2129,11 @@
         document.addEventListener('click', () => emojiPicker.classList.remove('open'));
         
         messageInput.addEventListener('input', resizeMessageInput);
-        messageInput.addEventListener('keydown', (e) => {
-            if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
-            e.preventDefault();
-            sendMessage();
-        });
 
         refreshBtn.addEventListener('click', refreshCurrentSession);
         themeToggleBtn.addEventListener('click', toggleTheme);
         logoutBtn.addEventListener('click', logout);
         sendBtn.addEventListener('click', () => sendMessage());
-        themeToggleBtn.addEventListener('click', () => {
-            lightMode = !lightMode;
-            updateTheme();
-        });
-
         soundToggleBtn.addEventListener('click', () => {
             soundEnabled = !soundEnabled;
             localStorage.setItem(NOTIFY_SOUND_KEY, soundEnabled ? '1' : '0');

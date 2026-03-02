@@ -119,6 +119,23 @@ See: `lib/gateway-ws.js` for implementation details (issue #111, parent #110)
 - [Open Issues](https://github.com/joryirving/miso-chat/issues)
 - [Open PRs](https://github.com/joryirving/miso-chat/pulls)
 
+## Changelog
+
+## Changelog
+
+### v0.3.0 (2026-03-01)
+- **#125**: Add reaction counts like Discord - reactions now show count badges
+- **#126**: Add dark/light theme toggle with localStorage persistence
+- Improved WebSocket reconnection on errors
+- Fixed emoji picker background and positioning
+- Typing indicator now responds to gateway events only
+
+### v0.2.0 (2026-02-28)
+- Initial release
+- OIDC authentication support
+- Real-time WebSocket chat
+- Mobile-friendly PWA UI
+
 ## License
 
 MIT License - see [LICENSE](LICENSE).
