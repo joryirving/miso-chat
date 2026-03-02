@@ -242,6 +242,7 @@ const GATEWAY_WS_WAIT_CHALLENGE_MS = Number(process.env.GATEWAY_WS_WAIT_CHALLENG
 
 // Persistent WebSocket manager for gateway connections
 const gatewayWsManager = new GatewayWsManager({
+  authToken: GATEWAY_TOKEN,
   deviceIdentityPath: GATEWAY_DEVICE_IDENTITY_PATH,
   wsUrl: getGatewayWsUrl(),
   clientId: GATEWAY_WS_CLIENT_ID,
