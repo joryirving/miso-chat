@@ -4,7 +4,7 @@ module.exports = {
   webDir: 'public',
   server: {
     androidScheme: 'https',
-    url: process.env.CAPACITOR_URL || 'http://localhost:3000'
+    url: process.env.CAPACITOR_URL || 'https://miso-chat.jory.dev'
   },
   android: {
     buildToolsVersion: '33.0.0',
