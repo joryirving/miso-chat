@@ -92,6 +92,47 @@ Manual testing performed by:
 
 See: `lib/gateway-ws.js` for implementation details (issue #111, parent #110)
 
+### WebSocket Persistence
+
+**Issue #115** - WebSocket connection persistence and behavior testing.
+
+The Gateway connection maintains persistent state across disruptions:
+
+| Scenario | Behavior | Status |
+|----------|----------|--------|
+| Gateway restart | Auto-reconnect with exponential backoff | ✅ Tested |
+| Network interruption (brief) | Reconnection after 1s → 2s → 4s... | ✅ Tested |
+| Network interruption (extended) | Max 5 attempts, then `reconnect-failed` | ✅ Tested |
+| Browser sleep/wake | Connection resumes if within retry window | ✅ Tested |
+| Server-side close (1000/1001) | Clean close, no reconnect | ✅ Tested |
+| Server-side error (1011) | Triggers reconnect sequence | ✅ Tested |
+
+**Persistence Configuration:**
+```javascript
+const manager = new GatewayWsManager({
+  maxReconnectAttempts: 5,    // Max retries before giving up
+  reconnectDelay: 1000,       // Initial delay (ms)
+  reconnectBackoff: 2,        // Exponential multiplier
+  // Max delay = 1000 * 2^4 = 16000ms (16s) on final attempt
+});
+```
+
+**Events for Monitoring:**
+```javascript
+manager.on('reconnecting', (attempt, delay) => {
+  console.log(`Reconnecting in ${delay}ms (attempt ${attempt})`);
+});
+
+manager.on('reconnect-failed', (err) => {
+  console.log('Giving up - manual intervention needed');
+});
+```
+
+**Pending Request Handling:**
+- In-flight requests during disconnect → timeout after 30s (configurable)
+- Requests queued while disconnected → immediate error
+- Successful reconnect does not retry failed requests (client responsibility)
+
 ## API Endpoints
 
 ### Sessions
