@@ -1,12 +1,9 @@
-import { CapacitorConfig } from '@capacitor/cli';
-
-const config: CapacitorConfig = {
+module.exports = {
   appId: 'chat.openclaw.miso',
   appName: 'OpenClaw Chat',
   webDir: 'public',
   server: {
     androidScheme: 'https',
-    // Configure for local development
     url: process.env.CAPACITOR_URL || 'http://localhost:3000'
   },
   android: {
@@ -16,11 +13,6 @@ const config: CapacitorConfig = {
     useAndroidX: true,
     allowMixedContent: true
   },
-  ios: {
-    minVersion: '13.0',
-    allowMixedContent: true,
-    splashScaled: true
-  },
   plugins: {
     SplashScreen: {
       launchShowDuration: 3000,
@@ -29,5 +21,3 @@ const config: CapacitorConfig = {
     }
   }
 };
-
-export default config;

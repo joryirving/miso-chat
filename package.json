@@ -10,6 +10,9 @@
     "test:ci": "node --check server.js && echo '{}' > test-results.json"
   },
   "dependencies": {
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/cli": "^8.1.0",
+    "@capacitor/core": "^8.1.0",
     "better-sqlite3": "^12.0.0",
     "dotenv": "^17.0.0",
     "express": "^5.0.0",
@@ -19,5 +22,8 @@
     "passport-local": "^1.0.0",
     "passport-openidconnect": "^0.1.2",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
   }
 }
