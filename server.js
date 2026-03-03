@@ -5,6 +5,7 @@ const WebSocket = require('ws');
 const passport = require('passport');
 const LocalStrategy = require('passport-local').Strategy;
 const rateLimit = require('express-rate-limit');
+const cors = require('cors');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
@@ -18,11 +19,22 @@ const { reactions } = require('./lib/db');
 const app = express();
 const server = http.createServer(app);
 
+const oidcEnabled = process.env.OIDC_ENABLED === 'true';
+const localAuthEnabled = process.env.LOCAL_AUTH_ENABLED !== 'false';
+
 // SSE clients for real-time gateway event forwarding
 const sseClients = new Set();
 
 // Trust proxy for rate limiting behind Envoy
 app.set('trust proxy', 1);
+// Enable CORS for frontend connection
+const corsOptions = {
+  origin: process.env.CORS_ORIGIN || true,
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+app.use(cors(corsOptions));
 
 // Apply security middleware
 securityMiddleware.forEach(middleware => app.use(middleware));
@@ -32,7 +44,6 @@ const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
   message: { error: 'Too many requests, please try again later.' },
-  proxyTrust: true
 });
 app.use('/api/', limiter);
 
@@ -51,7 +62,6 @@ app.use((req, res, next) => {
 app.use(express.static('public', { index: false }));
 
 // Session config
-const oidcEnabled = process.env.OIDC_ENABLED === 'true';
 const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET || 'dev-secret-change-in-production',
   resave: false,
@@ -74,7 +84,7 @@ passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((obj, done) => done(null, obj));
 
 // Local Auth Strategy
-if (process.env.OIDC_ENABLED !== 'true') {
+if (localAuthEnabled) {
   const localUsers = (process.env.LOCAL_USERS || 'admin:password123').split(',');
   const validUsers = localUsers.map(u => {
     const [user, pass] = u.split(':');
@@ -88,7 +98,9 @@ if (process.env.OIDC_ENABLED !== 'true') {
       return done(null, false, { message: 'Invalid credentials' });
     }
   ));
-} else {
+}
+
+if (oidcEnabled) {
   const providerUrl = (process.env.OIDC_PROVIDER_URL || '').trim();
   const providerIssuer = providerUrl
     ? providerUrl.replace(/\/\.well-known\/openid-configuration\/?$/, '/')
@@ -134,22 +146,33 @@ const isAuthenticated = (req, res, next) => {
 
 // Login
 app.get('/login', (req, res) => {
-  if (process.env.OIDC_ENABLED === 'true') {
-    return res.redirect('/auth/oidc');
-  }
   return res.sendFile(__dirname + '/public/login.html');
 });
 
+app.get('/api/login-options', (req, res) => {
+  const issuerLabel = process.env.OIDC_ISSUER_LABEL
+    || process.env.OIDC_PROVIDER_NAME
+    || (process.env.OIDC_ISSUER ? String(process.env.OIDC_ISSUER).replace(/^https?:\/\//, '').replace(/\/.*/, '') : 'OIDC');
+  res.json({
+    localAuthEnabled,
+    oidcEnabled,
+    oidcLabel: issuerLabel,
+  });
+});
+
 app.post('/login', (req, res, next) => {
-  if (process.env.OIDC_ENABLED === 'true') {
-    return res.redirect('/auth/oidc');
+  if (!localAuthEnabled) {
+    return res.redirect('/login?error=local_disabled');
   }
   return passport.authenticate('local', {
     successRedirect: '/',
     failureRedirect: '/login?error=invalid',
   })(req, res, next);
 });
-app.get('/auth/oidc', passport.authenticate('oidc'));
+app.get('/auth/oidc', (req, res, next) => {
+  if (!oidcEnabled) return res.redirect('/login?error=oidc_disabled');
+  return passport.authenticate('oidc')(req, res, next);
+});
 app.get('/auth/oidc/callback', passport.authenticate('oidc', { successRedirect: '/', failureRedirect: '/login?error=oidc_failed' }));
 app.post('/logout', (req, res) => {
   req.logout((logoutErr) => {
@@ -172,7 +195,21 @@ app.post('/logout', (req, res) => {
 // Protected routes
 app.get('/', isAuthenticated, (req, res) => res.sendFile(__dirname + '/public/index.html'));
 app.get('/api/auth', (req, res) => res.json({ authenticated: req.isAuthenticated(), user: req.user, oidc: process.env.OIDC_ENABLED === 'true' }));
-app.get('/api/health', (req, res) => res.json({ status: 'healthy', uptime: process.uptime(), timestamp: new Date().toISOString() }));
+
+let gatewayWsLastError = '';
+let gatewayWsLastClose = null;
+
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    gatewayWsConnected: gatewayWsManager?.isConnected?.() || false,
+    gatewayWsReconnectAttempts: gatewayWsManager?.reconnectAttempts || 0,
+    gatewayWsLastError,
+    gatewayWsLastClose,
+  });
+});
 
 /**
  * Infer a readable agent name from session key metadata
@@ -265,10 +302,25 @@ const GATEWAY_DEVICE_IDENTITY_PATH = process.env.GATEWAY_DEVICE_IDENTITY_PATH
 const GATEWAY_WS_WAIT_CHALLENGE_MS = Number(process.env.GATEWAY_WS_WAIT_CHALLENGE_MS || 1200);
 
 // Persistent WebSocket manager for gateway connections
+const REQUESTED_GATEWAY_SCOPES = [
+  'operator.read',
+  'operator.write',
+  'operator.pairing',
+  'chat.send',
+  'sessions.send',
+  'sessions.list',
+  'sessions.history',
+];
+
 const gatewayWsManager = new GatewayWsManager({
   wsUrl: getGatewayWsUrl(),
   clientId: GATEWAY_WS_CLIENT_ID,
   clientMode: GATEWAY_WS_CLIENT_MODE,
+  token: GATEWAY_TOKEN,
+  role: 'operator',
+  scopes: REQUESTED_GATEWAY_SCOPES,
+  waitChallengeMs: GATEWAY_WS_WAIT_CHALLENGE_MS,
+  buildDeviceAuth: ({ nonce, scopes }) => buildGatewayDeviceAuth({ nonce, scopes }),
   headers: {
     ...(GATEWAY_TOKEN ? { Authorization: `Bearer ${GATEWAY_TOKEN}` } : {}),
     ...(GATEWAY_WS_ORIGIN ? { Origin: GATEWAY_WS_ORIGIN } : {}),
@@ -842,28 +894,52 @@ function sanitizeAssistantText(text) {
 // GET /api/sessions - List all sessions via gateway
 app.get('/api/sessions', isAuthenticated, async (req, res) => {
   try {
-    const result = await gatewayInvoke('sessions_list', {
-      limit: 50,
-      includeLastMessage: true,
-      includeDerivedTitles: true,
-    });
-    const payload = unwrapToolResult(result);
-    const sessions = (payload?.sessions || []).map((s) => {
-      const sessionKey = s.key || s.sessionKey || s.sessionId;
-      // Infer agent name from session key metadata (e.g., "agent:main:main" -> "Main")
-      const inferredAgentName = inferAgentNameFromKey(sessionKey);
-      return {
-        sessionKey,
-        displayName: s.displayName || s.agentName || inferredAgentName || sessionKey,
-        updatedAt: s.updatedAt,
-        kind: s.kind,
-        channel: s.channel,
-        lastMessage: s.lastMessage,
-        title: s.derivedTitle || s.title,
-        agentId: s.agentId,
-        agentName: s.agentName || inferredAgentName,
-      };
-    });
+    let rawSessions = [];
+
+    if (gatewayWsManager?.isConnected?.()) {
+      try {
+        const wsFrame = await gatewayWsManager.send('sessions.list', {
+          limit: 200,
+          includeLastMessage: true,
+          includeDerivedTitles: true,
+          includeArchived: true,
+        }, 15);
+        rawSessions = wsFrame?.result?.sessions || wsFrame?.sessions || [];
+      } catch (wsErr) {
+        console.warn('sessions.list via WS failed, falling back to tools invoke:', wsErr.message);
+      }
+    }
+
+    if (!Array.isArray(rawSessions) || rawSessions.length === 0) {
+      const result = await gatewayInvoke('sessions_list', {
+        limit: 200,
+        includeLastMessage: true,
+        includeDerivedTitles: true,
+        includeArchived: true,
+      });
+      const payload = unwrapToolResult(result);
+      rawSessions = payload?.sessions || [];
+    }
+
+    const sessions = rawSessions
+      .map((s) => {
+        const sessionKey = s.key || s.sessionKey || s.sessionId;
+        if (!sessionKey || sessionKey.includes(':cron:')) return null;
+
+        const inferredAgentName = inferAgentNameFromKey(sessionKey);
+        return {
+          sessionKey,
+          displayName: s.displayName || s.derivedTitle || s.title || s.agentName || inferredAgentName || sessionKey,
+          updatedAt: s.updatedAt,
+          kind: s.kind,
+          channel: s.channel,
+          lastMessage: s.lastMessage,
+          title: s.derivedTitle || s.title || s.displayName,
+          agentId: s.agentId,
+          agentName: s.agentName || inferredAgentName,
+        };
+      })
+      .filter(Boolean);
 
     const deduped = [];
     const seen = new Set();
@@ -1045,6 +1121,8 @@ const initGatewayWsManager = async () => {
   try {
     const origin = GATEWAY_WS_ORIGIN || 'http://localhost:3000';
     await gatewayWsManager.connect(origin);
+    gatewayWsLastError = '';
+    gatewayWsLastClose = null;
     console.log('✅ Persistent Gateway WS manager connected');
     
     // Set up reconnection event handlers
@@ -1057,10 +1135,16 @@ const initGatewayWsManager = async () => {
     });
     
     gatewayWsManager.on('close', (code, reason) => {
+      gatewayWsLastClose = {
+        code,
+        reason: typeof reason === 'string' ? reason : String(reason || ''),
+        at: new Date().toISOString(),
+      };
       console.log(`🔌 Gateway WS closed: ${code} ${reason}`);
     });
     
     gatewayWsManager.on('error', (err) => {
+      gatewayWsLastError = String(err?.message || err || 'unknown error');
       console.error('⚠️ Gateway WS error:', err.message);
     });
     

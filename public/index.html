@@ -82,6 +82,8 @@
             gap: 12px;
             border-bottom: 1px solid var(--border);
             flex-shrink: 0;
+            position: relative;
+            z-index: 50;
             -webkit-backdrop-filter: blur(20px);
             backdrop-filter: blur(20px);
         }
@@ -90,12 +92,18 @@
             width: 40px;
             height: 40px;
             border-radius: 50%;
-            background: var(--accent-gradient);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            box-shadow: 0 2px 12px rgba(233, 69, 96, 0.4);
+            overflow: hidden;
+            background: var(--bg-tertiary);
+            display: grid;
+            place-items: center;
+            box-shadow: 0 2px 12px rgba(233, 69, 96, 0.25);
+        }
+
+        .avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
         }
         
         .header-info h1 {
@@ -173,6 +181,47 @@
             box-shadow: 0 0 0 1px rgba(233, 69, 96, 0.3);
             background: rgba(233, 69, 96, 0.15);
         }
+
+        .header-controls { position: relative; }
+
+        .menu-toggle {
+            width: 36px;
+            height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
+        .action-menu {
+            display: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            min-width: 180px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 6px;
+            box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+            z-index: 5000;
+        }
+
+        .action-menu.open { display: block; }
+
+        .action-menu button {
+            width: 100%;
+            text-align: left;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .action-menu button:hover { background: var(--bg-tertiary); }
         
         @keyframes pulse {
             0%, 100% { opacity: 1; }
@@ -242,6 +291,17 @@
             flex-direction: column;
             gap: 6px;
             min-width: 0;
+        }
+
+        .message-time {
+            font-size: 11px;
+            color: var(--text-secondary);
+            opacity: 0.7;
+            padding: 0 4px;
+        }
+
+        .message.user .message-time {
+            text-align: right;
         }
 
         .bubble {
@@ -651,6 +711,7 @@
         }
         
         .emoji-picker {
+            position: fixed;
             bottom: 70px;
             right: 10px;
             background: var(--bg-secondary);
@@ -813,33 +874,29 @@
 </head>
 <body>
     <header class="header">
-        <div class="avatar">🍲</div>
+        <div class="avatar"><img src="/favicon-32x32.png" alt="Assistant avatar" loading="eager" decoding="async"></div>
         <div class="header-info">
-            <h1 id="assistantName">Miso</h1>
+            <h1 id="assistantName">Assistant</h1>
             <div class="status">
                 <span class="status-dot" id="statusDot"></span>
                 <span id="statusText">Connecting...</span>
             </div>
         </div>
         <div class="header-controls">
-            <button class="icon-btn" id="themeToggleBtn" title="Toggle theme" aria-label="Toggle theme">🌙</button>
             <button class="icon-btn" id="refreshBtn" title="Refresh" aria-label="Refresh">↻</button>
-            <button class="icon-btn" id="soundToggleBtn" title="Toggle reply sound" aria-label="Toggle reply sound" aria-pressed="false">🔕</button>
             <select id="sessionSelect" class="session-select" onchange="selectSession(this.value)">
-                <option value="">Loading sessions...</option>
+                <option value="" disabled>Loading sessions...</option>
             </select>
-            <button class="icon-btn" id="logoutBtn" title="Logout" aria-label="Logout">⎋</button>
+            <button class="icon-btn menu-toggle" id="menuBtn" title="More" aria-label="More">☰</button>
+            <div class="action-menu" id="actionMenu" role="menu" aria-label="Actions">
+                <button type="button" id="menuSoundBtn" role="menuitem">🔕 Toggle sound</button>
+                <button type="button" id="menuThemeBtn" role="menuitem">🌙 Toggle theme</button>
+                <button type="button" id="menuLogoutBtn" role="menuitem">⎋ Logout</button>
+            </div>
         </div>
     </header>
     
-    <div class="messages" id="messages">
-        <div class="message miso">
-            <img class="message-avatar" src="/favicon-32x32.png" alt="Miso avatar" loading="lazy" decoding="async">
-            <div class="message-content">
-                <div class="bubble">Hey there! 👋 Connected! What would you like?</div>
-            </div>
-        </div>
-    </div>
+    <div class="messages" id="messages"></div>
     
     <div class="typing" id="typingIndicator">
         <div class="typing-dots">
@@ -852,7 +909,7 @@
     
     <div class="input-area">
         <div class="input-wrapper">
-            <textarea id="messageInput" rows="1" placeholder="Message Miso..." autocomplete="off" autocorrect="off" autocapitalize="sentences"></textarea>
+            <textarea id="messageInput" rows="1" placeholder="Message Assistant..." autocomplete="off" autocorrect="off" autocapitalize="sentences"></textarea>
         </div>
         <button type="button" class="emoji-btn" id="emojiBtn" title="Add emoji">😊</button>
         <button type="button" class="send-btn" id="sendBtn" onclick="sendMessage()">
@@ -869,7 +926,7 @@
         const REACTION_STORAGE_KEY = 'miso.messageReactions.v1';
         const NOTIFY_SOUND_KEY = 'miso.notify.soundEnabled.v1';
         const REACTION_OPTIONS = ['❤️', '👍', '😂', '👀'];
-        const HISTORY_POLL_INTERVAL_MS = 5000;
+        const HISTORY_POLL_INTERVAL_MS = 8000;
         const THEME_STORAGE_KEY = 'miso.theme.v1';
 
         let currentSessionKey = null;
@@ -878,6 +935,7 @@
         let sending = false;
         let historyPollTimer = null;
         let historyPollInFlight = false;
+        let sseConnected = false;
         let historyMessageKeys = new Set();
         let localAssistantEchoes = new Map();
 
@@ -1380,10 +1438,51 @@
         let messageReactions = loadReactions();
         let unreadNotifications = 0;
         let titleBlinkInterval = null;
-        const ORIGINAL_TITLE = 'Miso Chat';
+        const ORIGINAL_TITLE = 'OpenClaw Chat';
         const NEW_MESSAGE_TITLE = '💬 New message';
         let soundEnabled = localStorage.getItem(NOTIFY_SOUND_KEY) === '1';
         let baseTitle = document.title;
+        const sessionMetaByKey = new Map();
+        const ASSISTANT_NAME_STORAGE_KEY = 'openclaw.assistantName';
+        const API_BASE_STORAGE_KEY = 'openclaw.apiBaseUrl';
+        let configuredAssistantName = localStorage.getItem(ASSISTANT_NAME_STORAGE_KEY) || 'Assistant';
+
+        function isLikelyMobile() {
+            return window.matchMedia('(pointer: coarse)').matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+        }
+
+        function normalizeBaseUrl(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            return raw.replace(/\/+$/, '');
+        }
+
+        function getApiBaseUrl() {
+            const fromQuery = new URLSearchParams(window.location.search).get('backend');
+            if (fromQuery) {
+                const normalized = normalizeBaseUrl(fromQuery);
+                localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
+                return normalized;
+            }
+            return normalizeBaseUrl(localStorage.getItem(API_BASE_STORAGE_KEY) || '');
+        }
+
+        function setApiBaseUrl(url) {
+            const normalized = normalizeBaseUrl(url);
+            if (normalized) localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
+            else localStorage.removeItem(API_BASE_STORAGE_KEY);
+            return normalized;
+        }
+
+        function apiUrl(path) {
+            const base = getApiBaseUrl();
+            if (!base) return path;
+            return `${base}${path}`;
+        }
+
+        function apiFetch(path, options = undefined) {
+            return fetch(apiUrl(path), options);
+        }
 
         const messagesDiv = document.getElementById('messages');
         const messageInput = document.getElementById('messageInput');
@@ -1394,42 +1493,44 @@
         const sessionSelect = document.getElementById('sessionSelect');
         const assistantNameEl = document.getElementById('assistantName');
         const refreshBtn = document.getElementById('refreshBtn');
-        const logoutBtn = document.getElementById('logoutBtn');
-        const soundToggleBtn = document.getElementById('soundToggleBtn');
-        const themeToggleBtn = document.getElementById('themeToggleBtn');
-        const THEME_STORAGE_KEY = 'miso.theme.v1';
+        const menuBtn = document.getElementById('menuBtn');
+        const actionMenu = document.getElementById('actionMenu');
+        const menuSoundBtn = document.getElementById('menuSoundBtn');
+        const menuThemeBtn = document.getElementById('menuThemeBtn');
+        const menuLogoutBtn = document.getElementById('menuLogoutBtn');
 
         function toggleTheme() {
             const currentTheme = document.documentElement.getAttribute('data-theme');
             const newTheme = currentTheme === 'light' ? 'dark' : 'light';
             document.documentElement.setAttribute('data-theme', newTheme === 'dark' ? '' : newTheme);
             localStorage.setItem(THEME_STORAGE_KEY, newTheme);
-            themeToggleBtn.textContent = newTheme === 'light' ? '🌙' : '☀️';
+            updateThemeToggle();
         }
 
         function initTheme() {
             const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) || 'dark';
             if (savedTheme === 'light') {
                 document.documentElement.setAttribute('data-theme', 'light');
-                themeToggleBtn.textContent = '☀️';
-            } else {
-                themeToggleBtn.textContent = '🌙';
             }
+            updateThemeToggle();
+        }
+
+        function closeActionMenu() {
+            actionMenu?.classList.remove('open');
         }
 
         // Initialize theme on load
         initTheme();
 
         function updateSoundToggle() {
-            soundToggleBtn.textContent = soundEnabled ? '🔔' : '🔕';
-            soundToggleBtn.classList.toggle('active', soundEnabled);
-            soundToggleBtn.setAttribute('aria-pressed', soundEnabled ? 'true' : 'false');
-            soundToggleBtn.title = soundEnabled ? 'Reply sound on' : 'Reply sound off';
+            if (!menuSoundBtn) return;
+            menuSoundBtn.textContent = soundEnabled ? '🔔 Sound: on' : '🔕 Sound: off';
         }
 
         function updateThemeToggle() {
+            if (!menuThemeBtn) return;
             const theme = localStorage.getItem(THEME_STORAGE_KEY) || 'dark';
-            themeToggleBtn.textContent = theme === 'light' ? '☀️' : '🌙';
+            menuThemeBtn.textContent = theme === 'light' ? '☀️ Theme: light' : '🌙 Theme: dark';
         }
 
         function updateDocumentTitle() {
@@ -1542,6 +1643,19 @@
             return queued > 0 ? `Online · queue ${queued}` : 'Online';
         }
 
+        async function refreshBackendHealth() {
+            try {
+                const response = await apiFetch('/api/health');
+                if (!response.ok) return;
+                const health = await response.json();
+                if (health?.gatewayWsConnected === false) {
+                    setOnlineState(false, 'Gateway handshake failed (backend disconnected)');
+                }
+            } catch {
+                // keep current state
+            }
+        }
+
         function rememberLocalAssistantEcho(content) {
             const key = String(content || '').trim();
             if (!key) return;
@@ -1576,7 +1690,7 @@
 
         async function fetchHistoryMessages(sessionKey) {
             try {
-                const response = await fetch(`/api/sessions/${encodeURIComponent(sessionKey)}/history`);
+                const response = await apiFetch(`/api/sessions/${encodeURIComponent(sessionKey)}/history`);
                 if (!response.ok) {
                     console.error('Failed to fetch history:', response.status, response.statusText);
                     return [];
@@ -1598,6 +1712,7 @@
         }
 
         function startHistoryPolling() {
+            if (sseConnected) return;
             stopHistoryPolling();
             historyPollTimer = setInterval(() => {
                 pollSessionHistory();
@@ -1642,6 +1757,7 @@
                     addMessage(sender, msg.content, {
                         reactionKeyHint: `history:${msg.timestamp || index}:${msg.role || 'assistant'}:${contentSnippet}`,
                         toolCalls: msg.toolCalls,
+                        timestamp: msg.timestamp,
                     });
                 });
             } catch (error) {
@@ -1782,6 +1898,15 @@
                 contentWrap.appendChild(row);
             }
 
+            // Add timestamp if provided
+            if (options.timestamp) {
+                const timeEl = document.createElement('div');
+                timeEl.className = 'message-time';
+                const date = new Date(options.timestamp);
+                timeEl.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                contentWrap.appendChild(timeEl);
+            }
+
             div.appendChild(contentWrap);
             messagesDiv.appendChild(div);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -1808,6 +1933,7 @@
                     reactionKeyHint: `history:${msg.timestamp || index}:${msg.role || 'assistant'}:${contentSnippet}`,
                     suppressNotify: true,
                     toolCalls: msg.toolCalls,
+                    timestamp: msg.timestamp,
                 });
             });
         }
@@ -1824,12 +1950,14 @@
 
         async function loadConfig() {
             try {
-                const response = await fetch('/api/config');
+                const response = await apiFetch('/api/config');
                 const cfg = await response.json();
                 if (cfg?.assistantName) {
-                    assistantNameEl.textContent = cfg.assistantName;
-                    messageInput.placeholder = `Message ${cfg.assistantName}...`;
+                    configuredAssistantName = cfg.assistantName;
+                    localStorage.setItem(ASSISTANT_NAME_STORAGE_KEY, configuredAssistantName);
                 }
+                assistantNameEl.textContent = configuredAssistantName;
+                messageInput.placeholder = `Message ${configuredAssistantName}...`;
                 if (cfg?.title) {
                     baseTitle = cfg.title;
                     updateDocumentTitle();
@@ -1846,44 +1974,36 @@
             if (eventSource) {
                 eventSource.close();
             }
-            eventSource = new EventSource('/api/events');
-            
-            eventSource.addEventListener('connected', (e) => {
+            eventSource = new EventSource(apiUrl('/api/events'));
+
+            eventSource.onopen = () => {
+                sseConnected = true;
+                stopHistoryPolling();
                 console.log('📡 SSE connected');
-            });
-            
-            eventSource.addEventListener('typing.start', (e) => {
-                console.log('📡 typing.start received');
-                typingIndicator.classList.add('active');
-            });
-            
-            eventSource.addEventListener('typing.stop', (e) => {
-                console.log('📡 typing.stop received');
-                typingIndicator.classList.remove('active');
-            });
-            
-            eventSource.addEventListener('message.delta', (e) => {
-                console.log('📡 message.delta received');
-                // Handle streaming response chunks if needed
-            });
-            
-            eventSource.addEventListener('error', (e) => {
-                console.error('📡 Gateway error event:', e.data);
+            };
+
+            eventSource.onmessage = (e) => {
                 try {
-                    const data = JSON.parse(e.data);
-                    if (data?.data?.message) {
-                        addMessage('system', `Gateway error: ${data.data.message}`);
+                    const payload = JSON.parse(e.data || '{}');
+                    const eventType = payload?.event;
+                    const eventData = payload?.data;
+                    if (!eventType) return;
+
+                    if (eventType === 'typing.start') typingIndicator.classList.add('active');
+                    if (eventType === 'typing.stop') typingIndicator.classList.remove('active');
+                    if (eventType === 'error' && eventData?.message) {
+                        addMessage('system', `Gateway error: ${eventData.message}`);
                     }
-                } catch (err) {}
-            });
-            
-            eventSource.addEventListener('connect.challenge', (e) => {
-                console.log('📡 connect.challenge received');
-                // Handle re-authentication if needed
-            });
-            
-            eventSource.onerror = (err) => {
+                } catch (err) {
+                    // noop
+                }
+            };
+
+            eventSource.onerror = async () => {
+                sseConnected = false;
                 console.warn('📡 SSE connection error, reconnecting...');
+                startHistoryPolling();
+                await refreshBackendHealth();
                 eventSource = null;
                 setTimeout(connectEventSource, 5000);
             };
@@ -1891,15 +2011,18 @@
 
         async function loadSessions() {
             try {
-                const response = await fetch('/api/sessions');
+                const response = await apiFetch('/api/sessions');
                 const data = await response.json();
                 const sessions = Array.isArray(data.sessions) ? data.sessions : [];
 
                 if (data.defaultSessionKey) defaultSessionKey = data.defaultSessionKey;
 
-                sessionSelect.innerHTML = '<option value="">Select session...</option>';
+                sessionSelect.innerHTML = '';
+                sessionSelect.disabled = false;
 
+                sessionMetaByKey.clear();
                 sessions.forEach((session) => {
+                    if (session?.sessionKey) sessionMetaByKey.set(session.sessionKey, session);
                     const option = document.createElement('option');
                     option.value = session.sessionKey;
                     option.textContent = buildSessionLabel(session);
@@ -1933,6 +2056,10 @@
             currentSessionKey = sessionKey;
             localStorage.setItem(SESSION_STORAGE_KEY, sessionKey);
             sessionSelect.value = sessionKey;
+            const selectedMeta = sessionMetaByKey.get(sessionKey);
+            const sessionAssistant = selectedMeta?.agentName || selectedMeta?.displayName || configuredAssistantName || 'Assistant';
+            assistantNameEl.textContent = sessionAssistant;
+            messageInput.placeholder = `Message ${sessionAssistant}...`;
             setOnlineState(true, 'Loading history...');
 
             try {
@@ -1968,7 +2095,7 @@
             setOnlineState(true, queueStatusText(currentSessionKey));
 
             try {
-                const response = await fetch(`/api/sessions/${encodeURIComponent(currentSessionKey)}/send`, {
+                const response = await apiFetch(`/api/sessions/${encodeURIComponent(currentSessionKey)}/send`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: next.message }),
@@ -2005,24 +2132,48 @@
 
         // Slash command handler
         function handleSlashCommand(cmd) {
-            const command = cmd.slice(1).trim().toLowerCase();
+            const input = cmd.slice(1).trim();
+            const [rawCommand = '', ...rest] = input.split(/\s+/);
+            const command = rawCommand.toLowerCase();
+            const args = rest.join(' ').trim();
             
             switch (command) {
                 case 'help':
-                    addMessage('system', 'Available commands:\n- /help - Show this message\n- /clear - Clear chat history\n- /status - Show connection status\n- /stop - Stop current queue processing');
+                    addMessage('system', 'Available commands:\n- /help - Show this message\n- /clear - Clear chat history\n- /status - Show connection status\n- /stop - Stop current queue processing\n- /backend <url> - Set API base URL (empty to reset)\n- /logout - Sign out and clear local session state');
                     break;
                 case 'clear':
                     clearChatDisplay();
                     addMessage('system', 'Chat cleared.');
                     break;
                 case 'status':
-                    const queueCount = sendQueue.filter(item => !item.sessionKey || item.sessionKey === currentSessionKey).length;
-                    addMessage('system', `Status: Online\nQueue: ${queueCount} message(s)\nSession: ${currentSessionKey || 'None'}`);
+                    (async () => {
+                        const queueCount = sendQueue.filter(item => !item.sessionKey || item.sessionKey === currentSessionKey).length;
+                        try {
+                            const healthRes = await apiFetch('/api/health');
+                            const health = await healthRes.json();
+                            addMessage('system', `Status: Online\nQueue: ${queueCount} message(s)\nSession: ${currentSessionKey || 'None'}\nGateway WS: ${health.gatewayWsConnected ? 'connected' : 'disconnected'}\nReconnect attempts: ${health.gatewayWsReconnectAttempts || 0}`);
+                        } catch {
+                            addMessage('system', `Status: Online\nQueue: ${queueCount} message(s)\nSession: ${currentSessionKey || 'None'}`);
+                        }
+                    })();
                     break;
+                case 'backend': {
+                    const normalized = setApiBaseUrl(args);
+                    addMessage('system', normalized
+                        ? `Backend set to: ${normalized}`
+                        : 'Backend reset to same-origin.');
+                    connectEventSource();
+                    loadConfig();
+                    loadSessions();
+                    break;
+                }
                 case 'stop':
                     sendQueue = sendQueue.filter(item => item.sessionKey !== currentSessionKey);
                     savePendingQueue(sendQueue);
                     addMessage('system', 'Queue cleared for this session.');
+                    break;
+                case 'logout':
+                    logout();
                     break;
                 default:
                     addMessage('system', `Unknown command: /${command}\nType /help for available commands.`);
@@ -2090,7 +2241,7 @@
             
             // Destroy session on server
             try {
-                await fetch('/logout', { method: 'POST', credentials: 'include' });
+                await apiFetch('/logout', { method: 'POST', credentials: 'include' });
             } catch (e) {
                 console.warn('Logout fetch failed:', e);
             }
@@ -2135,18 +2286,47 @@
             emojiPicker.classList.toggle('open');
         });
         
-        document.addEventListener('click', () => emojiPicker.classList.remove('open'));
+        document.addEventListener('click', () => {
+            emojiPicker.classList.remove('open');
+            closeActionMenu();
+        });
         
         messageInput.addEventListener('input', resizeMessageInput);
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            if (isLikelyMobile()) {
+                // Mobile: Enter inserts newline, Send button sends
+                return;
+            }
+            // Desktop: Enter sends, Shift+Enter inserts newline
+            if (!e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
 
-        refreshBtn.addEventListener('click', refreshCurrentSession);
-        themeToggleBtn.addEventListener('click', toggleTheme);
-        logoutBtn.addEventListener('click', logout);
+        refreshBtn?.addEventListener('click', refreshCurrentSession);
         sendBtn.addEventListener('click', () => sendMessage());
-        soundToggleBtn.addEventListener('click', () => {
+
+        menuBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            actionMenu?.classList.toggle('open');
+        });
+        actionMenu?.addEventListener('click', (e) => e.stopPropagation());
+
+        menuSoundBtn?.addEventListener('click', () => {
+            closeActionMenu();
             soundEnabled = !soundEnabled;
             localStorage.setItem(NOTIFY_SOUND_KEY, soundEnabled ? '1' : '0');
             updateSoundToggle();
+        });
+        menuThemeBtn?.addEventListener('click', () => {
+            closeActionMenu();
+            toggleTheme();
+        });
+        menuLogoutBtn?.addEventListener('click', () => {
+            closeActionMenu();
+            logout();
         });
 
         document.addEventListener('visibilitychange', () => {
@@ -2157,11 +2337,15 @@
         (async () => {
             initTheme();
             updateSoundToggle();
+            assistantNameEl.textContent = configuredAssistantName;
+            messageInput.placeholder = `Message ${configuredAssistantName}...`; 
             resizeMessageInput();
             setOnlineState(false, 'Connecting...');
             await loadConfig();
             await loadSessions();
             connectEventSource();
+            await refreshBackendHealth();
+            setInterval(refreshBackendHealth, 15000);
         })();
     </script>
 </body>
