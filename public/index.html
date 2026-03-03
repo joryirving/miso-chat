@@ -90,18 +90,12 @@
             width: 40px;
             height: 40px;
             border-radius: 50%;
-            overflow: hidden;
-            background: var(--bg-tertiary);
-            box-shadow: 0 2px 12px rgba(233, 69, 96, 0.25);
-            display: grid;
-            place-items: center;
-        }
-
-        .avatar img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            display: block;
+            background: var(--accent-gradient);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 2px 12px rgba(233, 69, 96, 0.4);
         }
         
         .header-info h1 {
@@ -179,6 +173,47 @@
             box-shadow: 0 0 0 1px rgba(233, 69, 96, 0.3);
             background: rgba(233, 69, 96, 0.15);
         }
+
+        .header-controls { position: relative; }
+
+        .menu-toggle {
+            width: 36px;
+            height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
+        .action-menu {
+            display: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            min-width: 180px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 6px;
+            box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+            z-index: 1000;
+        }
+
+        .action-menu.open { display: block; }
+
+        .action-menu button {
+            width: 100%;
+            text-align: left;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .action-menu button:hover { background: var(--bg-tertiary); }
         
         @keyframes pulse {
             0%, 100% { opacity: 1; }
@@ -681,8 +716,6 @@
             max-width: 200px;
             max-height: 200px;
             overflow-y: auto;
-            overflow-x: hidden;
-            box-sizing: border-box;
             z-index: 100;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         }
@@ -727,9 +760,6 @@
             cursor: pointer;
             padding: 4px;
             border-radius: 4px;
-            min-width: 0;
-            width: 100%;
-            box-sizing: border-box;
         }
 
         .emoji-picker button:hover {
@@ -836,7 +866,7 @@
 </head>
 <body>
     <header class="header">
-        <div class="avatar"><img src="/favicon-32x32.png" alt="Assistant avatar" loading="eager" decoding="async"></div>
+        <div class="avatar">🍲</div>
         <div class="header-info">
             <h1 id="assistantName">Assistant</h1>
             <div class="status">
@@ -846,12 +876,17 @@
         </div>
         <div class="header-controls">
             <button class="icon-btn" id="themeToggleBtn" title="Toggle theme" aria-label="Toggle theme">🌙</button>
-            <button class="icon-btn" id="refreshBtn" title="Refresh" aria-label="Refresh">↻</button>
             <button class="icon-btn" id="soundToggleBtn" title="Toggle reply sound" aria-label="Toggle reply sound" aria-pressed="false">🔕</button>
             <select id="sessionSelect" class="session-select" onchange="selectSession(this.value)">
                 <option value="">Loading sessions...</option>
             </select>
-            <button class="icon-btn" id="logoutBtn" title="Logout" aria-label="Logout">Logout</button>
+            <button class="icon-btn menu-toggle" id="menuBtn" title="More" aria-label="More">☰</button>
+            <div class="action-menu" id="actionMenu" role="menu" aria-label="Actions">
+                <button type="button" id="menuRefreshBtn" role="menuitem">↻ Refresh</button>
+                <button type="button" id="menuSoundBtn" role="menuitem">🔕 Toggle sound</button>
+                <button type="button" id="menuThemeBtn" role="menuitem">🌙 Toggle theme</button>
+                <button type="button" id="menuLogoutBtn" role="menuitem">⎋ Logout</button>
+            </div>
         </div>
     </header>
     
@@ -1451,10 +1486,14 @@
         const typingIndicator = document.getElementById('typingIndicator');
         const sessionSelect = document.getElementById('sessionSelect');
         const assistantNameEl = document.getElementById('assistantName');
-        const refreshBtn = document.getElementById('refreshBtn');
-        const logoutBtn = document.getElementById('logoutBtn');
         const soundToggleBtn = document.getElementById('soundToggleBtn');
         const themeToggleBtn = document.getElementById('themeToggleBtn');
+        const menuBtn = document.getElementById('menuBtn');
+        const actionMenu = document.getElementById('actionMenu');
+        const menuRefreshBtn = document.getElementById('menuRefreshBtn');
+        const menuSoundBtn = document.getElementById('menuSoundBtn');
+        const menuThemeBtn = document.getElementById('menuThemeBtn');
+        const menuLogoutBtn = document.getElementById('menuLogoutBtn');
 
         function toggleTheme() {
             const currentTheme = document.documentElement.getAttribute('data-theme');
@@ -1472,6 +1511,10 @@
             } else {
                 themeToggleBtn.textContent = '🌙';
             }
+        }
+
+        function closeActionMenu() {
+            actionMenu?.classList.remove('open');
         }
 
         // Initialize theme on load
@@ -1731,7 +1774,7 @@
                 const avatar = document.createElement('img');
                 avatar.className = 'message-avatar';
                 avatar.src = '/favicon-32x32.png';
-                avatar.alt = 'Assistant avatar';
+                avatar.alt = 'Miso avatar';
                 avatar.loading = 'lazy';
                 avatar.decoding = 'async';
                 div.appendChild(avatar);
@@ -2012,7 +2055,7 @@
             localStorage.setItem(SESSION_STORAGE_KEY, sessionKey);
             sessionSelect.value = sessionKey;
             const selectedMeta = sessionMetaByKey.get(sessionKey);
-            const sessionAssistant = configuredAssistantName || selectedMeta?.displayName || (selectedMeta?.agentName && selectedMeta?.agentName !== selectedMeta?.agentId ? selectedMeta.agentName : '') || 'Assistant';
+            const sessionAssistant = selectedMeta?.agentName || selectedMeta?.displayName || configuredAssistantName || 'Assistant';
             assistantNameEl.textContent = sessionAssistant;
             messageInput.placeholder = `Message ${sessionAssistant}...`;
             setOnlineState(true, 'Loading history...');
@@ -2241,7 +2284,10 @@
             emojiPicker.classList.toggle('open');
         });
         
-        document.addEventListener('click', () => emojiPicker.classList.remove('open'));
+        document.addEventListener('click', () => {
+            emojiPicker.classList.remove('open');
+            closeActionMenu();
+        });
         
         messageInput.addEventListener('input', resizeMessageInput);
         messageInput.addEventListener('keydown', (e) => {
@@ -2257,14 +2303,36 @@
             }
         });
 
-        refreshBtn.addEventListener('click', refreshCurrentSession);
         themeToggleBtn.addEventListener('click', toggleTheme);
-        logoutBtn.addEventListener('click', logout);
         sendBtn.addEventListener('click', () => sendMessage());
         soundToggleBtn.addEventListener('click', () => {
             soundEnabled = !soundEnabled;
             localStorage.setItem(NOTIFY_SOUND_KEY, soundEnabled ? '1' : '0');
             updateSoundToggle();
+        });
+
+        menuBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            actionMenu?.classList.toggle('open');
+        });
+        actionMenu?.addEventListener('click', (e) => e.stopPropagation());
+        menuRefreshBtn?.addEventListener('click', async () => {
+            closeActionMenu();
+            await refreshCurrentSession();
+        });
+        menuSoundBtn?.addEventListener('click', () => {
+            closeActionMenu();
+            soundEnabled = !soundEnabled;
+            localStorage.setItem(NOTIFY_SOUND_KEY, soundEnabled ? '1' : '0');
+            updateSoundToggle();
+        });
+        menuThemeBtn?.addEventListener('click', () => {
+            closeActionMenu();
+            toggleTheme();
+        });
+        menuLogoutBtn?.addEventListener('click', () => {
+            closeActionMenu();
+            logout();
         });
 
         document.addEventListener('visibilitychange', () => {
