@@ -1,10 +1,10 @@
 module.exports = {
-  appId: 'chat.openclaw.miso',
-  appName: 'OpenClaw Chat',
+  appId: process.env.CAPACITOR_APP_ID || 'chat.openclaw.client',
+  appName: process.env.CAPACITOR_APP_NAME || 'OpenClaw Chat',
   webDir: 'public',
   server: {
     androidScheme: 'https',
-    url: process.env.CAPACITOR_URL || 'http://localhost:3000'
+    url: process.env.CAPACITOR_SERVER_URL || process.env.CAPACITOR_URL || 'http://localhost:3000'
   },
   android: {
     buildToolsVersion: '33.0.0',

@@ -816,7 +816,7 @@
     <header class="header">
         <div class="avatar">🍲</div>
         <div class="header-info">
-            <h1 id="assistantName">Miso</h1>
+            <h1 id="assistantName">Assistant</h1>
             <div class="status">
                 <span class="status-dot" id="statusDot"></span>
                 <span id="statusText">Connecting...</span>
@@ -829,18 +829,11 @@
             <select id="sessionSelect" class="session-select" onchange="selectSession(this.value)">
                 <option value="">Loading sessions...</option>
             </select>
-            <button class="icon-btn" id="logoutBtn" title="Logout" aria-label="Logout">⎋</button>
+            <button class="icon-btn" id="logoutBtn" title="Logout" aria-label="Logout">Logout</button>
         </div>
     </header>
     
-    <div class="messages" id="messages">
-        <div class="message miso">
-            <img class="message-avatar" src="/favicon-32x32.png" alt="Miso avatar" loading="lazy" decoding="async">
-            <div class="message-content">
-                <div class="bubble">Hey there! 👋 Connected! What would you like?</div>
-            </div>
-        </div>
-    </div>
+    <div class="messages" id="messages"></div>
     
     <div class="typing" id="typingIndicator">
         <div class="typing-dots">
@@ -853,7 +846,7 @@
     
     <div class="input-area">
         <div class="input-wrapper">
-            <textarea id="messageInput" rows="1" placeholder="Message Miso..." autocomplete="off" autocorrect="off" autocapitalize="sentences"></textarea>
+            <textarea id="messageInput" rows="1" placeholder="Message Assistant..." autocomplete="off" autocorrect="off" autocapitalize="sentences"></textarea>
         </div>
         <button type="button" class="emoji-btn" id="emojiBtn" title="Add emoji">😊</button>
         <button type="button" class="send-btn" id="sendBtn" onclick="sendMessage()">
@@ -870,7 +863,7 @@
         const REACTION_STORAGE_KEY = 'miso.messageReactions.v1';
         const NOTIFY_SOUND_KEY = 'miso.notify.soundEnabled.v1';
         const REACTION_OPTIONS = ['❤️', '👍', '😂', '👀'];
-        const HISTORY_POLL_INTERVAL_MS = 5000;
+        const HISTORY_POLL_INTERVAL_MS = 8000;
         const THEME_STORAGE_KEY = 'miso.theme.v1';
 
         let currentSessionKey = null;
@@ -879,6 +872,7 @@
         let sending = false;
         let historyPollTimer = null;
         let historyPollInFlight = false;
+        let sseConnected = false;
         let historyMessageKeys = new Set();
         let localAssistantEchoes = new Map();
 
@@ -1381,10 +1375,51 @@
         let messageReactions = loadReactions();
         let unreadNotifications = 0;
         let titleBlinkInterval = null;
-        const ORIGINAL_TITLE = 'Miso Chat';
+        const ORIGINAL_TITLE = 'OpenClaw Chat';
         const NEW_MESSAGE_TITLE = '💬 New message';
         let soundEnabled = localStorage.getItem(NOTIFY_SOUND_KEY) === '1';
         let baseTitle = document.title;
+        const sessionMetaByKey = new Map();
+        const ASSISTANT_NAME_STORAGE_KEY = 'openclaw.assistantName';
+        const API_BASE_STORAGE_KEY = 'openclaw.apiBaseUrl';
+        let configuredAssistantName = localStorage.getItem(ASSISTANT_NAME_STORAGE_KEY) || 'Assistant';
+
+        function isLikelyMobile() {
+            return window.matchMedia('(pointer: coarse)').matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+        }
+
+        function normalizeBaseUrl(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            return raw.replace(/\/+$/, '');
+        }
+
+        function getApiBaseUrl() {
+            const fromQuery = new URLSearchParams(window.location.search).get('backend');
+            if (fromQuery) {
+                const normalized = normalizeBaseUrl(fromQuery);
+                localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
+                return normalized;
+            }
+            return normalizeBaseUrl(localStorage.getItem(API_BASE_STORAGE_KEY) || '');
+        }
+
+        function setApiBaseUrl(url) {
+            const normalized = normalizeBaseUrl(url);
+            if (normalized) localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
+            else localStorage.removeItem(API_BASE_STORAGE_KEY);
+            return normalized;
+        }
+
+        function apiUrl(path) {
+            const base = getApiBaseUrl();
+            if (!base) return path;
+            return `${base}${path}`;
+        }
+
+        function apiFetch(path, options = undefined) {
+            return fetch(apiUrl(path), options);
+        }
 
         const messagesDiv = document.getElementById('messages');
         const messageInput = document.getElementById('messageInput');
@@ -1398,7 +1433,6 @@
         const logoutBtn = document.getElementById('logoutBtn');
         const soundToggleBtn = document.getElementById('soundToggleBtn');
         const themeToggleBtn = document.getElementById('themeToggleBtn');
-        const THEME_STORAGE_KEY = 'miso.theme.v1';
 
         function toggleTheme() {
             const currentTheme = document.documentElement.getAttribute('data-theme');
@@ -1543,6 +1577,19 @@
             return queued > 0 ? `Online · queue ${queued}` : 'Online';
         }
 
+        async function refreshBackendHealth() {
+            try {
+                const response = await apiFetch('/api/health');
+                if (!response.ok) return;
+                const health = await response.json();
+                if (health?.gatewayWsConnected === false) {
+                    setOnlineState(false, 'Gateway handshake failed (backend disconnected)');
+                }
+            } catch {
+                // keep current state
+            }
+        }
+
         function rememberLocalAssistantEcho(content) {
             const key = String(content || '').trim();
             if (!key) return;
@@ -1577,7 +1624,7 @@
 
         async function fetchHistoryMessages(sessionKey) {
             try {
-                const response = await fetch(`/api/sessions/${encodeURIComponent(sessionKey)}/history`);
+                const response = await apiFetch(`/api/sessions/${encodeURIComponent(sessionKey)}/history`);
                 if (!response.ok) {
                     console.error('Failed to fetch history:', response.status, response.statusText);
                     return [];
@@ -1599,6 +1646,7 @@
         }
 
         function startHistoryPolling() {
+            if (sseConnected) return;
             stopHistoryPolling();
             historyPollTimer = setInterval(() => {
                 pollSessionHistory();
@@ -1825,12 +1873,14 @@
 
         async function loadConfig() {
             try {
-                const response = await fetch('/api/config');
+                const response = await apiFetch('/api/config');
                 const cfg = await response.json();
                 if (cfg?.assistantName) {
-                    assistantNameEl.textContent = cfg.assistantName;
-                    messageInput.placeholder = `Message ${cfg.assistantName}...`;
+                    configuredAssistantName = cfg.assistantName;
+                    localStorage.setItem(ASSISTANT_NAME_STORAGE_KEY, configuredAssistantName);
                 }
+                assistantNameEl.textContent = configuredAssistantName;
+                messageInput.placeholder = `Message ${configuredAssistantName}...`;
                 if (cfg?.title) {
                     baseTitle = cfg.title;
                     updateDocumentTitle();
@@ -1847,44 +1897,36 @@
             if (eventSource) {
                 eventSource.close();
             }
-            eventSource = new EventSource('/api/events');
-            
-            eventSource.addEventListener('connected', (e) => {
+            eventSource = new EventSource(apiUrl('/api/events'));
+
+            eventSource.onopen = () => {
+                sseConnected = true;
+                stopHistoryPolling();
                 console.log('📡 SSE connected');
-            });
-            
-            eventSource.addEventListener('typing.start', (e) => {
-                console.log('📡 typing.start received');
-                typingIndicator.classList.add('active');
-            });
-            
-            eventSource.addEventListener('typing.stop', (e) => {
-                console.log('📡 typing.stop received');
-                typingIndicator.classList.remove('active');
-            });
-            
-            eventSource.addEventListener('message.delta', (e) => {
-                console.log('📡 message.delta received');
-                // Handle streaming response chunks if needed
-            });
-            
-            eventSource.addEventListener('error', (e) => {
-                console.error('📡 Gateway error event:', e.data);
+            };
+
+            eventSource.onmessage = (e) => {
                 try {
-                    const data = JSON.parse(e.data);
-                    if (data?.data?.message) {
-                        addMessage('system', `Gateway error: ${data.data.message}`);
+                    const payload = JSON.parse(e.data || '{}');
+                    const eventType = payload?.event;
+                    const eventData = payload?.data;
+                    if (!eventType) return;
+
+                    if (eventType === 'typing.start') typingIndicator.classList.add('active');
+                    if (eventType === 'typing.stop') typingIndicator.classList.remove('active');
+                    if (eventType === 'error' && eventData?.message) {
+                        addMessage('system', `Gateway error: ${eventData.message}`);
                     }
-                } catch (err) {}
-            });
-            
-            eventSource.addEventListener('connect.challenge', (e) => {
-                console.log('📡 connect.challenge received');
-                // Handle re-authentication if needed
-            });
-            
-            eventSource.onerror = (err) => {
+                } catch (err) {
+                    // noop
+                }
+            };
+
+            eventSource.onerror = async () => {
+                sseConnected = false;
                 console.warn('📡 SSE connection error, reconnecting...');
+                startHistoryPolling();
+                await refreshBackendHealth();
                 eventSource = null;
                 setTimeout(connectEventSource, 5000);
             };
@@ -1892,7 +1934,7 @@
 
         async function loadSessions() {
             try {
-                const response = await fetch('/api/sessions');
+                const response = await apiFetch('/api/sessions');
                 const data = await response.json();
                 const sessions = Array.isArray(data.sessions) ? data.sessions : [];
 
@@ -1900,7 +1942,9 @@
 
                 sessionSelect.innerHTML = '<option value="">Select session...</option>';
 
+                sessionMetaByKey.clear();
                 sessions.forEach((session) => {
+                    if (session?.sessionKey) sessionMetaByKey.set(session.sessionKey, session);
                     const option = document.createElement('option');
                     option.value = session.sessionKey;
                     option.textContent = buildSessionLabel(session);
@@ -1934,6 +1978,10 @@
             currentSessionKey = sessionKey;
             localStorage.setItem(SESSION_STORAGE_KEY, sessionKey);
             sessionSelect.value = sessionKey;
+            const selectedMeta = sessionMetaByKey.get(sessionKey);
+            const sessionAssistant = selectedMeta?.agentName || selectedMeta?.displayName || configuredAssistantName || 'Assistant';
+            assistantNameEl.textContent = sessionAssistant;
+            messageInput.placeholder = `Message ${sessionAssistant}...`;
             setOnlineState(true, 'Loading history...');
 
             try {
@@ -1969,7 +2017,7 @@
             setOnlineState(true, queueStatusText(currentSessionKey));
 
             try {
-                const response = await fetch(`/api/sessions/${encodeURIComponent(currentSessionKey)}/send`, {
+                const response = await apiFetch(`/api/sessions/${encodeURIComponent(currentSessionKey)}/send`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: next.message }),
@@ -2006,24 +2054,48 @@
 
         // Slash command handler
         function handleSlashCommand(cmd) {
-            const command = cmd.slice(1).trim().toLowerCase();
+            const input = cmd.slice(1).trim();
+            const [rawCommand = '', ...rest] = input.split(/\s+/);
+            const command = rawCommand.toLowerCase();
+            const args = rest.join(' ').trim();
             
             switch (command) {
                 case 'help':
-                    addMessage('system', 'Available commands:\n- /help - Show this message\n- /clear - Clear chat history\n- /status - Show connection status\n- /stop - Stop current queue processing');
+                    addMessage('system', 'Available commands:\n- /help - Show this message\n- /clear - Clear chat history\n- /status - Show connection status\n- /stop - Stop current queue processing\n- /backend <url> - Set API base URL (empty to reset)\n- /logout - Sign out and clear local session state');
                     break;
                 case 'clear':
                     clearChatDisplay();
                     addMessage('system', 'Chat cleared.');
                     break;
                 case 'status':
-                    const queueCount = sendQueue.filter(item => !item.sessionKey || item.sessionKey === currentSessionKey).length;
-                    addMessage('system', `Status: Online\nQueue: ${queueCount} message(s)\nSession: ${currentSessionKey || 'None'}`);
+                    (async () => {
+                        const queueCount = sendQueue.filter(item => !item.sessionKey || item.sessionKey === currentSessionKey).length;
+                        try {
+                            const healthRes = await apiFetch('/api/health');
+                            const health = await healthRes.json();
+                            addMessage('system', `Status: Online\nQueue: ${queueCount} message(s)\nSession: ${currentSessionKey || 'None'}\nGateway WS: ${health.gatewayWsConnected ? 'connected' : 'disconnected'}\nReconnect attempts: ${health.gatewayWsReconnectAttempts || 0}`);
+                        } catch {
+                            addMessage('system', `Status: Online\nQueue: ${queueCount} message(s)\nSession: ${currentSessionKey || 'None'}`);
+                        }
+                    })();
                     break;
+                case 'backend': {
+                    const normalized = setApiBaseUrl(args);
+                    addMessage('system', normalized
+                        ? `Backend set to: ${normalized}`
+                        : 'Backend reset to same-origin.');
+                    connectEventSource();
+                    loadConfig();
+                    loadSessions();
+                    break;
+                }
                 case 'stop':
                     sendQueue = sendQueue.filter(item => item.sessionKey !== currentSessionKey);
                     savePendingQueue(sendQueue);
                     addMessage('system', 'Queue cleared for this session.');
+                    break;
+                case 'logout':
+                    logout();
                     break;
                 default:
                     addMessage('system', `Unknown command: /${command}\nType /help for available commands.`);
@@ -2091,7 +2163,7 @@
             
             // Destroy session on server
             try {
-                await fetch('/logout', { method: 'POST', credentials: 'include' });
+                await apiFetch('/logout', { method: 'POST', credentials: 'include' });
             } catch (e) {
                 console.warn('Logout fetch failed:', e);
             }
@@ -2139,6 +2211,18 @@
         document.addEventListener('click', () => emojiPicker.classList.remove('open'));
         
         messageInput.addEventListener('input', resizeMessageInput);
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            if (isLikelyMobile()) {
+                // Mobile: Enter inserts newline, Send button sends
+                return;
+            }
+            // Desktop: Enter sends, Shift+Enter inserts newline
+            if (!e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
 
         refreshBtn.addEventListener('click', refreshCurrentSession);
         themeToggleBtn.addEventListener('click', toggleTheme);
@@ -2158,11 +2242,15 @@
         (async () => {
             initTheme();
             updateSoundToggle();
+            assistantNameEl.textContent = configuredAssistantName;
+            messageInput.placeholder = `Message ${configuredAssistantName}...`; 
             resizeMessageInput();
             setOnlineState(false, 'Connecting...');
             await loadConfig();
             await loadSessions();
             connectEventSource();
+            await refreshBackendHealth();
+            setInterval(refreshBackendHealth, 15000);
         })();
     </script>
 </body>

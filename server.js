@@ -181,7 +181,21 @@ app.post('/logout', (req, res) => {
 // Protected routes
 app.get('/', isAuthenticated, (req, res) => res.sendFile(__dirname + '/public/index.html'));
 app.get('/api/auth', (req, res) => res.json({ authenticated: req.isAuthenticated(), user: req.user, oidc: process.env.OIDC_ENABLED === 'true' }));
-app.get('/api/health', (req, res) => res.json({ status: 'healthy', uptime: process.uptime(), timestamp: new Date().toISOString() }));
+
+let gatewayWsLastError = '';
+let gatewayWsLastClose = null;
+
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    gatewayWsConnected: gatewayWsManager?.isConnected?.() || false,
+    gatewayWsReconnectAttempts: gatewayWsManager?.reconnectAttempts || 0,
+    gatewayWsLastError,
+    gatewayWsLastClose,
+  });
+});
 
 /**
  * Infer a readable agent name from session key metadata
@@ -1069,6 +1083,8 @@ const initGatewayWsManager = async () => {
   try {
     const origin = GATEWAY_WS_ORIGIN || 'http://localhost:3000';
     await gatewayWsManager.connect(origin);
+    gatewayWsLastError = '';
+    gatewayWsLastClose = null;
     console.log('✅ Persistent Gateway WS manager connected');
     
     // Set up reconnection event handlers
@@ -1081,10 +1097,16 @@ const initGatewayWsManager = async () => {
     });
     
     gatewayWsManager.on('close', (code, reason) => {
+      gatewayWsLastClose = {
+        code,
+        reason: typeof reason === 'string' ? reason : String(reason || ''),
+        at: new Date().toISOString(),
+      };
       console.log(`🔌 Gateway WS closed: ${code} ${reason}`);
     });
     
     gatewayWsManager.on('error', (err) => {
+      gatewayWsLastError = String(err?.message || err || 'unknown error');
       console.error('⚠️ Gateway WS error:', err.message);
     });
     
