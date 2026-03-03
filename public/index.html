@@ -2227,7 +2227,10 @@
             const raw = text ?? messageInput.value ?? '';
             const messageText = String(raw).trim();
             if (!messageText) return;
-            
+
+            // Close emoji picker when sending a message
+            emojiPicker.classList.remove('open');
+
             // Handle slash commands immediately (bypass queue)
             if (messageText.startsWith('/')) {
                 handleSlashCommand(messageText);
