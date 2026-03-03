@@ -285,6 +285,17 @@
             min-width: 0;
         }
 
+        .message-time {
+            font-size: 11px;
+            color: var(--text-secondary);
+            opacity: 0.7;
+            padding: 0 4px;
+        }
+
+        .message.user .message-time {
+            text-align: right;
+        }
+
         .bubble {
             padding: 14px 18px;
             border-radius: 20px;
@@ -1745,6 +1756,7 @@
                     addMessage(sender, msg.content, {
                         reactionKeyHint: `history:${msg.timestamp || index}:${msg.role || 'assistant'}:${contentSnippet}`,
                         toolCalls: msg.toolCalls,
+                        timestamp: msg.timestamp,
                     });
                 });
             } catch (error) {
@@ -1885,6 +1897,15 @@
                 contentWrap.appendChild(row);
             }
 
+            // Add timestamp if provided
+            if (options.timestamp) {
+                const timeEl = document.createElement('div');
+                timeEl.className = 'message-time';
+                const date = new Date(options.timestamp);
+                timeEl.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                contentWrap.appendChild(timeEl);
+            }
+
             div.appendChild(contentWrap);
             messagesDiv.appendChild(div);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -1911,6 +1932,7 @@
                     reactionKeyHint: `history:${msg.timestamp || index}:${msg.role || 'assistant'}:${contentSnippet}`,
                     suppressNotify: true,
                     toolCalls: msg.toolCalls,
+                    timestamp: msg.timestamp,
                 });
             });
         }
