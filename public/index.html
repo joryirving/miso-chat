@@ -947,6 +947,7 @@
         let historyPollTimer = null;
         let historyPollInFlight = false;
         let sseConnected = false;
+        let sseTypingActive = false;
         let historyMessageKeys = new Set();
         let localAssistantEchoes = new Map();
 
@@ -1679,6 +1680,11 @@
             return queued > 0 ? `Online · queue ${queued}` : 'Online';
         }
 
+        function updateTypingIndicator() {
+            const hasQueued = currentSessionKey ? queueCountForSession(currentSessionKey) > 0 : false;
+            typingIndicator.classList.toggle('active', sseTypingActive || sending || hasQueued);
+        }
+
         async function refreshBackendHealth() {
             try {
                 const response = await apiFetch('/api/health');
@@ -2016,6 +2022,7 @@
 
             eventSource.onopen = () => {
                 sseConnected = true;
+                updateTypingIndicator();
                 console.log('📡 SSE connected');
             };
 
@@ -2026,8 +2033,14 @@
                     const eventData = payload?.data;
                     if (!eventType) return;
 
-                    if (eventType === 'typing.start') typingIndicator.classList.add('active');
-                    if (eventType === 'typing.stop') typingIndicator.classList.remove('active');
+                    if (eventType === 'typing.start') {
+                        sseTypingActive = true;
+                        updateTypingIndicator();
+                    }
+                    if (eventType === 'typing.stop') {
+                        sseTypingActive = false;
+                        updateTypingIndicator();
+                    }
                     if (eventType === 'error' && eventData?.message) {
                         addMessage('system', `Gateway error: ${eventData.message}`);
                     }
@@ -2038,6 +2051,8 @@
 
             eventSource.onerror = async () => {
                 sseConnected = false;
+                sseTypingActive = false;
+                updateTypingIndicator();
                 console.warn('📡 SSE connection error, reconnecting...');
                 startHistoryPolling();
                 await refreshBackendHealth();
@@ -2068,12 +2083,16 @@
 
                 if (sessions.length === 0) {
                     stopHistoryPolling();
+                    sseTypingActive = false;
+                    updateTypingIndicator();
                     setOnlineState(false, 'No sessions');
                     return;
                 }
 
                 const { selected, notice } = resolvePreferredSession(sessions);
                 if (!selected?.sessionKey) {
+                    sseTypingActive = false;
+                    updateTypingIndicator();
                     setOnlineState(false, 'No sessions');
                     return;
                 }
@@ -2082,6 +2101,8 @@
             } catch (error) {
                 console.error('Error loading sessions:', error);
                 stopHistoryPolling();
+                sseTypingActive = false;
+                updateTypingIndicator();
                 sessionSelect.innerHTML = '<option value="">Error</option>';
                 setOnlineState(false, 'Session load failed');
             }
@@ -2091,6 +2112,7 @@
             if (!sessionKey) return;
 
             currentSessionKey = sessionKey;
+            sseTypingActive = false;
             localStorage.setItem(SESSION_STORAGE_KEY, sessionKey);
             sessionSelect.value = sessionKey;
             const selectedMeta = sessionMetaByKey.get(sessionKey);
@@ -2098,6 +2120,7 @@
             assistantNameEl.textContent = sessionAssistant;
             messageInput.placeholder = `Message ${sessionAssistant}...`;
             setOnlineState(true, 'Loading history...');
+            updateTypingIndicator();
 
             try {
                 const messages = await fetchHistoryMessages(sessionKey);
@@ -2128,6 +2151,7 @@
             sending = true;
             const [next] = sendQueue.splice(nextIndex, 1);
             savePendingQueue(sendQueue);
+            updateTypingIndicator();
 
             setOnlineState(true, queueStatusText(currentSessionKey));
 
@@ -2163,6 +2187,7 @@
             } finally {
                 sending = false;
                 const remaining = queueCountForSession(currentSessionKey);
+                updateTypingIndicator();
                 setOnlineState(true, queueStatusText(currentSessionKey));
                 if (remaining > 0) processQueue();
             }
@@ -2285,6 +2310,7 @@
                 createdAt,
             });
             savePendingQueue(sendQueue);
+            updateTypingIndicator();
             processQueue();
         }
 
