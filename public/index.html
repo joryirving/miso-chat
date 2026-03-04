@@ -1612,6 +1612,17 @@
             return fetch(apiUrl(path), options);
         }
 
+        async function registerServiceWorker() {
+            if (!('serviceWorker' in navigator)) return;
+
+            try {
+                await navigator.serviceWorker.register('/sw.js');
+                console.log('✅ Service worker registered');
+            } catch (error) {
+                console.warn('Service worker registration failed:', error);
+            }
+        }
+
         async function ensureMobileBackendConfigured() {
             const hasBackendInQuery = new URLSearchParams(window.location.search).has('backend');
             if (hasBackendInQuery) return;
@@ -2818,6 +2829,7 @@
             resizeMessageInput();
             setOnlineState(false, 'Connecting...');
             await ensureMobileBackendConfigured();
+            await registerServiceWorker();
             await loadConfig();
             await loadSessions();
             connectEventSource();
