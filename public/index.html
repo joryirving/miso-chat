@@ -1806,8 +1806,13 @@
             const { emoji } = activeShortcodeResults[index];
             const before = messageInput.value.slice(0, activeShortcode.start);
             const after = messageInput.value.slice(activeShortcode.end);
-            const nextValue = `${before}${emoji} ${after}`;
-            const nextCursor = before.length + emoji.length + 1;
+
+            const nextChar = after.charAt(0);
+            const shouldAppendSpace = !nextChar || /[A-Za-z0-9]/.test(nextChar);
+            const separator = shouldAppendSpace ? ' ' : '';
+
+            const nextValue = `${before}${emoji}${separator}${after}`;
+            const nextCursor = before.length + emoji.length + separator.length;
 
             messageInput.value = nextValue;
             messageInput.selectionStart = messageInput.selectionEnd = nextCursor;
