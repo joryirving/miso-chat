@@ -1062,6 +1062,114 @@
         let sseTypingActive = false;
         let historyMessageKeys = new Set();
         let localAssistantEchoes = new Map();
+        let storedSessionKey = null;
+
+        function isNativeCapacitor() {
+            return typeof window.Capacitor !== 'undefined'
+                && typeof window.Capacitor.isNativePlatform === 'function'
+                && window.Capacitor.isNativePlatform();
+        }
+
+        function getSecureStoragePlugin() {
+            if (!isNativeCapacitor()) return null;
+            const plugins = window.Capacitor?.Plugins;
+            if (!plugins) return null;
+            return (
+                plugins.SecureStoragePlugin
+                || plugins.CapacitorSecureStoragePlugin
+                || plugins.SecureStorage
+                || null
+            );
+        }
+
+        async function secureStorageGet(key) {
+            const plugin = getSecureStoragePlugin();
+            if (!plugin || typeof plugin.get !== 'function') return null;
+            try {
+                const result = await plugin.get({ key });
+                if (typeof result === 'string') return result;
+                return typeof result?.value === 'string' ? result.value : null;
+            } catch {
+                return null;
+            }
+        }
+
+        async function secureStorageSet(key, value) {
+            const plugin = getSecureStoragePlugin();
+            if (!plugin || typeof plugin.set !== 'function') return false;
+            try {
+                await plugin.set({ key, value: String(value) });
+                return true;
+            } catch {
+                return false;
+            }
+        }
+
+        async function secureStorageRemove(key) {
+            const plugin = getSecureStoragePlugin();
+            if (!plugin || typeof plugin.remove !== 'function') return;
+            try {
+                await plugin.remove({ key });
+            } catch {
+                // ignore secure storage remove errors
+            }
+        }
+
+        async function hydrateStoredSessionKey() {
+            const secureValue = await secureStorageGet(SESSION_STORAGE_KEY);
+            if (secureValue) {
+                storedSessionKey = secureValue;
+                try {
+                    localStorage.removeItem(SESSION_STORAGE_KEY);
+                } catch {
+                    // ignore local storage errors
+                }
+                return;
+            }
+
+            const localValue = localStorage.getItem(SESSION_STORAGE_KEY);
+            if (!localValue) return;
+
+            storedSessionKey = localValue;
+            const migrated = await secureStorageSet(SESSION_STORAGE_KEY, localValue);
+            if (migrated) {
+                try {
+                    localStorage.removeItem(SESSION_STORAGE_KEY);
+                } catch {
+                    // ignore local storage errors
+                }
+            }
+        }
+
+        async function persistStoredSessionKey(sessionKey) {
+            storedSessionKey = sessionKey || null;
+
+            if (!sessionKey) {
+                await secureStorageRemove(SESSION_STORAGE_KEY);
+                try {
+                    localStorage.removeItem(SESSION_STORAGE_KEY);
+                } catch {
+                    // ignore local storage errors
+                }
+                return;
+            }
+
+            const savedToSecureStorage = await secureStorageSet(SESSION_STORAGE_KEY, sessionKey);
+            if (savedToSecureStorage) {
+                try {
+                    localStorage.removeItem(SESSION_STORAGE_KEY);
+                } catch {
+                    // ignore local storage errors
+                }
+                return;
+            }
+
+            localStorage.setItem(SESSION_STORAGE_KEY, sessionKey);
+        }
+
+        async function clearAuthLocalState() {
+            await persistStoredSessionKey(null);
+        }
 
         const CODE_BLOCK_REGEX = /```([\w+-]+)?\n([\s\S]*?)```/g;
         const TABLE_REGEX = /\|[^\n]+\|\n\|[-:|\s]+\|\n((?:\|[^\n]+\|\n?)+)/g;
@@ -2302,23 +2410,23 @@
 
         function resolvePreferredSession(sessions) {
             const list = Array.isArray(sessions) ? sessions.filter((s) => s?.sessionKey) : [];
-            if (list.length === 0) return { selected: null, notice: '' };
+            if (list.length === 0) return { selected: null, notice: '', clearStored: false };
 
             const keys = new Set(list.map((s) => s.sessionKey));
-            const stored = localStorage.getItem(SESSION_STORAGE_KEY);
-            const candidates = [currentSessionKey, stored, defaultSessionKey, list[0].sessionKey].filter(Boolean);
+            const candidates = [currentSessionKey, storedSessionKey, defaultSessionKey, list[0].sessionKey].filter(Boolean);
             const preferredKey = candidates.find((key) => keys.has(key)) || list[0].sessionKey;
             const selected = list.find((s) => s.sessionKey === preferredKey) || list[0];
 
             let notice = '';
+            let clearStored = false;
             if (currentSessionKey && !keys.has(currentSessionKey)) {
                 notice = 'Previous session is unavailable, switched to an active session.';
-            } else if (stored && !keys.has(stored)) {
-                localStorage.removeItem(SESSION_STORAGE_KEY);
+            } else if (storedSessionKey && !keys.has(storedSessionKey)) {
                 notice = 'Saved session is unavailable, switched to an active session.';
+                clearStored = true;
             }
 
-            return { selected, notice };
+            return { selected, notice, clearStored };
         }
 
         function historyMessageKey(message, index) {
@@ -2875,12 +2983,16 @@
                     return;
                 }
 
-                const { selected, notice } = resolvePreferredSession(sessions);
+                const { selected, notice, clearStored } = resolvePreferredSession(sessions);
                 if (!selected?.sessionKey) {
                     sseTypingActive = false;
                     updateTypingIndicator();
                     setOnlineState(false, 'No sessions');
                     return;
+                }
+
+                if (clearStored) {
+                    await persistStoredSessionKey(null);
                 }
 
                 await selectSession(selected.sessionKey, { notice });
@@ -2901,7 +3013,7 @@
 
             currentSessionKey = sessionKey;
             sseTypingActive = false;
-            localStorage.setItem(SESSION_STORAGE_KEY, sessionKey);
+            await persistStoredSessionKey(sessionKey);
             sessionSelect.value = sessionKey;
             const selectedMeta = sessionMetaByKey.get(sessionKey);
             const sessionAssistant = selectedMeta?.agentName || selectedMeta?.displayName || configuredAssistantName || 'Assistant';
@@ -3143,6 +3255,9 @@
             // Stop all polling first
             stopHistoryPolling();
 
+            // Clear auth/session client state first (secure storage + local fallback)
+            await clearAuthLocalState();
+
             // Clear all localStorage to prevent any session restoration
             try {
                 localStorage.clear();
@@ -3320,6 +3435,7 @@
             }
 
             await consumeMobileAuthTokenFromUrl();
+            await hydrateStoredSessionKey();
             await loadConfig();
             await loadSessions();
             connectEventSource();
