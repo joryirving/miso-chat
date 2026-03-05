@@ -3447,33 +3447,38 @@
             await ensureMobileBackendConfigured();
 
             // Handle deep links on mobile (when app is opened via misochat:// URL)
-            if (isNativeCapacitor() && typeof window.Capacitor.addListener === 'function') {
-                window.Capacitor.addListener('appUrlOpen', async (data) => {
-                    try {
-                        const url = new URL(data.url);
-                        if (!(url.pathname === '/auth/callback' || url.pathname.endsWith('/auth/callback'))) return;
+            if (isNativeCapacitor()) {
+                const appPlugin = window.Capacitor?.Plugins?.App;
+                if (appPlugin && typeof appPlugin.addListener === 'function') {
+                    appPlugin.addListener('appUrlOpen', async (data) => {
+                        try {
+                            const url = new URL(data.url);
+                            if (!(url.pathname === '/auth/callback' || url.pathname.endsWith('/auth/callback'))) return;
 
-                        const backend = url.searchParams.get('backend');
-                        if (backend) setApiBaseUrl(backend);
+                            const backend = url.searchParams.get('backend');
+                            if (backend) setApiBaseUrl(backend);
 
-                        const token = url.searchParams.get('mobile_token');
-                        if (!token) {
-                            console.warn('[DeepLink] auth callback missing mobile_token');
-                            return;
+                            const token = url.searchParams.get('mobile_token');
+                            if (!token) {
+                                console.warn('[DeepLink] auth callback missing mobile_token');
+                                return;
+                            }
+
+                            await consumeMobileAuthToken(token);
+
+                            const browser = window.Capacitor?.Plugins?.Browser;
+                            if (browser && typeof browser.close === 'function') {
+                                try { await browser.close(); } catch {}
+                            }
+
+                            window.location.reload();
+                        } catch (error) {
+                            console.error('[DeepLink] callback handling failed', error);
                         }
-
-                        await consumeMobileAuthToken(token);
-
-                        const browser = window.Capacitor?.Plugins?.Browser;
-                        if (browser && typeof browser.close === 'function') {
-                            try { await browser.close(); } catch {}
-                        }
-
-                        window.location.reload();
-                    } catch (error) {
-                        console.error('[DeepLink] callback handling failed', error);
-                    }
-                });
+                    });
+                } else {
+                    console.warn('[DeepLink] App plugin unavailable');
+                }
             }
 
             await consumeMobileAuthTokenFromUrl();
