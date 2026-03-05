@@ -52,9 +52,15 @@ const configuredCorsOrigins = String(process.env.CORS_ORIGIN || process.env.ALLO
 
 const defaultCorsOrigins = [
   'capacitor://localhost',
+  'ionic://localhost',
+  'app://localhost',
+  'http://localhost',
+  'https://localhost',
+  'http://127.0.0.1',
+  'https://127.0.0.1',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
-  'ionic://localhost',
+  'null',
 ];
 
 const allowedCorsOrigins = new Set([
