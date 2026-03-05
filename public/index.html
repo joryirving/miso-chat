@@ -1567,19 +1567,23 @@
         const API_BASE_STORAGE_KEY = 'openclaw.apiBaseUrl';
         let configuredAssistantName = localStorage.getItem(ASSISTANT_NAME_STORAGE_KEY) || 'Assistant';
 
+        function resolveShortcodeEmoji(shortcode) {
+            const normalized = normalizeShortcode(shortcode).replace(/-/g, '_');
+            if (!normalized) return '';
+
+            return EMOJI_SHORTCODES[normalized]
+                || EMOJI_SHORTCODES[normalized.replace(/^thumbsup$/, 'thumbs_up')]
+                || EMOJI_SHORTCODES[normalized.replace(/^thumbsdown$/, 'thumbs_down')]
+                || '';
+        }
+
         function normalizeReactionEmoji(rawEmoji) {
             const value = String(rawEmoji || '').trim();
             if (!value) return '';
             const shortcodeMatch = value.match(/^:([^:]+):$/);
             if (!shortcodeMatch) return value;
 
-            const shortcode = shortcodeMatch[1].toLowerCase();
-            const normalized = shortcode.replace(/-/g, '_');
-            return EMOJI_SHORTCODES[shortcode]
-                || EMOJI_SHORTCODES[normalized]
-                || EMOJI_SHORTCODES[normalized.replace(/^thumbsup$/, 'thumbs_up')]
-                || EMOJI_SHORTCODES[normalized.replace(/^thumbsdown$/, 'thumbs_down')]
-                || value;
+            return resolveShortcodeEmoji(shortcodeMatch[1]) || value;
         }
 
         function parseGatewayReactionEvent(text) {
@@ -1863,6 +1867,12 @@
 
         function normalizeShortcode(value = '') {
             return String(value).trim().replace(/^:+|:+$/g, '').toLowerCase();
+        }
+
+        function replaceExactShortcodes(value = '') {
+            return String(value).replace(/:([a-z0-9_+-]{1,32}):/gi, (fullMatch, rawShortcode) => {
+                return resolveShortcodeEmoji(rawShortcode) || fullMatch;
+            });
         }
 
         function searchShortcodes(query = '', limit = 8) {
@@ -2916,6 +2926,8 @@
                 resizeMessageInput();
                 return;
             }
+
+            const outgoingMessage = replaceExactShortcodes(messageText);
             
             if (!currentSessionKey) {
                 addMessage('system', 'Select a session first.');
@@ -2924,7 +2936,7 @@
 
             const queuedId = queueId();
             const createdAt = Date.now();
-            addMessage('user', messageText, {
+            addMessage('user', outgoingMessage, {
                 reactionKeyHint: `queued:${queuedId}`,
                 timestamp: createdAt,
             });
@@ -2934,7 +2946,7 @@
             sendQueue.push({
                 id: queuedId,
                 sessionKey: currentSessionKey,
-                message: messageText,
+                message: outgoingMessage,
                 createdAt,
             });
             savePendingQueue(sendQueue);
