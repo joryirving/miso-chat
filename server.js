@@ -536,7 +536,7 @@ const gatewayWsManager = new GatewayWsManager({
     ...(GATEWAY_TOKEN ? { Authorization: `Bearer ${GATEWAY_TOKEN}` } : {}),
     ...(GATEWAY_WS_ORIGIN ? { Origin: GATEWAY_WS_ORIGIN } : {}),
   },
-  maxReconnectAttempts: 5,
+  maxReconnectAttempts: Number(process.env.GATEWAY_WS_MAX_RECONNECT_ATTEMPTS || 0), // 0 = unlimited
   reconnectDelay: 1000,
   reconnectBackoff: 2,
 });
