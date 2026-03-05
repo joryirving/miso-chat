@@ -399,8 +399,10 @@ app.post('/login', (req, res, next) => {
 });
 app.get('/auth/oidc', (req, res, next) => {
   if (!oidcEnabled) return res.redirect('/login?error=oidc_disabled');
-  req.session.oidcReturnTo = getReturnTo(req, '/');
-  req.session.oidcMobileFlow = req.query?.mobile === '1';
+  const returnTo = getReturnTo(req, '/');
+  const mobileRequested = req.query?.mobile === '1';
+  req.session.oidcReturnTo = returnTo;
+  req.session.oidcMobileFlow = mobileRequested;
   return passport.authenticate('oidc')(req, res, next);
 });
 app.get('/auth/oidc/callback', (req, res, next) => {
@@ -417,13 +419,20 @@ app.get('/auth/oidc/callback', (req, res, next) => {
       }
 
       const storedReturnTo = req.session?.oidcReturnTo;
-      const mobileFlow = Boolean(req.session?.oidcMobileFlow);
+      const mobileFlowFromSession = Boolean(req.session?.oidcMobileFlow);
       if (req.session) {
         delete req.session.oidcReturnTo;
         delete req.session.oidcMobileFlow;
       }
 
-      const safeReturnTo = getReturnTo({ query: { return_to: storedReturnTo } }, '/');
+      const ua = String(req.get('user-agent') || '');
+      const isMobileUa = /Android|iPhone|iPad|iPod/i.test(ua);
+      const mobileFlow = mobileFlowFromSession || (isMobileUa && !storedReturnTo);
+
+      const safeReturnTo = storedReturnTo
+        ? getReturnTo({ query: { return_to: storedReturnTo } }, '/')
+        : (mobileFlow ? 'misochat://auth/callback' : '/');
+
       if (mobileFlow) {
         const token = issueMobileAuthToken(user);
         const target = new URL('/auth/mobile-complete', `${req.protocol}://${req.get('host')}`);
