@@ -1809,8 +1809,16 @@
             return true;
         }
 
+        function isNativeCapacitor() {
+            return typeof window.Capacitor !== 'undefined'
+                && typeof window.Capacitor.isNativePlatform === 'function'
+                && window.Capacitor.isNativePlatform();
+        }
+
         function isLikelyMobile() {
-            return window.matchMedia('(pointer: coarse)').matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+            return isNativeCapacitor()
+                || window.matchMedia('(pointer: coarse)').matches
+                || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
         }
 
         function normalizeBaseUrl(value) {
@@ -1994,23 +2002,28 @@
             }
         }
 
+        async function consumeMobileAuthToken(token) {
+            if (!token) return;
+            const response = await fetch(apiUrl('/api/mobile-auth/consume'), {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token }),
+            });
+
+            if (!response.ok) {
+                const payload = await response.json().catch(() => ({}));
+                throw new Error(payload.error || `Auth consume failed (${response.status})`);
+            }
+        }
+
         async function consumeMobileAuthTokenFromUrl() {
             const current = new URL(window.location.href);
             const token = current.searchParams.get('mobile_token');
             if (!token) return;
 
             try {
-                const response = await fetch(apiUrl('/api/mobile-auth/consume'), {
-                    method: 'POST',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token }),
-                });
-
-                if (!response.ok) {
-                    const payload = await response.json().catch(() => ({}));
-                    throw new Error(payload.error || `Auth consume failed (${response.status})`);
-                }
+                await consumeMobileAuthToken(token);
             } finally {
                 current.searchParams.delete('mobile_token');
                 window.history.replaceState({}, '', current.toString());
@@ -3422,14 +3435,25 @@
             await ensureMobileBackendConfigured();
 
             // Handle deep links on mobile (when app is opened via misochat:// URL)
-            if (typeof window.Capacitor !== 'undefined' && window.Capacitor.isNativePlatform()) {
+            if (isNativeCapacitor() && typeof window.Capacitor.addListener === 'function') {
                 window.Capacitor.addListener('appUrlOpen', async (data) => {
-                    console.log('[DeepLink] URL opened:', data.url);
-                    const url = new URL(data.url);
-                    if (url.pathname === '/auth/callback' || url.pathname.endsWith('/auth/callback')) {
-                        await consumeMobileAuthTokenFromUrl();
-                        // Reload to trigger normal session load
+                    try {
+                        const url = new URL(data.url);
+                        if (!(url.pathname === '/auth/callback' || url.pathname.endsWith('/auth/callback'))) return;
+
+                        const backend = url.searchParams.get('backend');
+                        if (backend) setApiBaseUrl(backend);
+
+                        const token = url.searchParams.get('mobile_token');
+                        if (!token) {
+                            console.warn('[DeepLink] auth callback missing mobile_token');
+                            return;
+                        }
+
+                        await consumeMobileAuthToken(token);
                         window.location.reload();
+                    } catch (error) {
+                        console.error('[DeepLink] callback handling failed', error);
                     }
                 });
             }
