@@ -40,9 +40,9 @@ const configuredCorsOrigins = String(process.env.CORS_ORIGIN || process.env.ALLO
   .filter(Boolean);
 
 const defaultCorsOrigins = [
+  'capacitor://localhost',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
-  'capacitor://localhost',
   'ionic://localhost',
 ];
 
