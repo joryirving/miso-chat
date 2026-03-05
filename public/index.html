@@ -2088,6 +2088,79 @@
             sendBtn.disabled = !online;
         }
 
+        async function extractApiErrorMessage(response) {
+            if (!response) return '';
+
+            try {
+                const payload = await response.clone().json();
+                if (typeof payload === 'string') return payload;
+                if (payload && typeof payload === 'object') {
+                    const detail = payload.error || payload.message || payload.detail;
+                    if (typeof detail === 'string') return detail;
+                }
+            } catch {
+                // ignore JSON parse failures
+            }
+
+            try {
+                const text = await response.clone().text();
+                return String(text || '').trim();
+            } catch {
+                return '';
+            }
+        }
+
+        function buildSessionLoadDiagnostic(error) {
+            const status = Number(error?.httpStatus || error?.status || 0);
+            const message = String(error?.message || '').trim();
+            const apiError = String(error?.apiError || '').trim();
+            const normalized = `${message} ${apiError}`.toLowerCase();
+            const backend = getApiBaseUrl();
+
+            if (error?.code === 'INVALID_BACKEND_URL') {
+                return 'Invalid backend URL. Enter a full URL like https://miso-chat.example.com';
+            }
+
+            if (status === 401 || normalized.includes('authentication required')) {
+                return 'Authentication required (401). Sign in and try again';
+            }
+
+            if (status === 403) {
+                return 'Access forbidden (403). Your account is not allowed on this backend';
+            }
+
+            if (status === 404) {
+                return 'Backend API not found (404). Check the backend URL';
+            }
+
+            if (status >= 500) {
+                return 'Backend unavailable (5xx). Check server/gateway status';
+            }
+
+            if (normalized.includes('certificate') || normalized.includes('tls') || normalized.includes('ssl')) {
+                return 'TLS/certificate error. Verify HTTPS cert trust on this device';
+            }
+
+            if (
+                error?.name === 'TypeError'
+                || normalized.includes('failed to fetch')
+                || normalized.includes('network')
+                || normalized.includes('econnrefused')
+                || normalized.includes('enotfound')
+                || normalized.includes('ehostunreach')
+            ) {
+                return backend
+                    ? `Backend unreachable (${backend}). Check URL, network, or certificate`
+                    : 'Backend unreachable. Check server status and network connectivity';
+            }
+
+            if (apiError) {
+                return `Session load failed: ${apiError}`;
+            }
+
+            return 'Session load failed';
+        }
+
         function buildSessionLabel(session) {
             const key = session.sessionKey || '';
             const shortKey = key.slice(0, 8);
@@ -2543,8 +2616,29 @@
 
         async function loadSessions() {
             try {
+                const queryBackend = new URLSearchParams(window.location.search).get('backend');
+                if (queryBackend && !normalizeBaseUrl(queryBackend)) {
+                    const invalidBackendError = new Error('Invalid backend URL');
+                    invalidBackendError.code = 'INVALID_BACKEND_URL';
+                    throw invalidBackendError;
+                }
+
                 const response = await apiFetch('/api/sessions');
+                if (!response.ok) {
+                    const apiError = await extractApiErrorMessage(response);
+                    const err = new Error(apiError || `Request failed (${response.status})`);
+                    err.httpStatus = response.status;
+                    err.apiError = apiError;
+                    throw err;
+                }
+
                 const data = await response.json();
+                if (data?.error) {
+                    const err = new Error(data.error);
+                    err.apiError = data.error;
+                    throw err;
+                }
+
                 const sessions = Array.isArray(data.sessions) ? data.sessions : [];
 
                 if (data.defaultSessionKey) defaultSessionKey = data.defaultSessionKey;
@@ -2584,7 +2678,9 @@
                 sseTypingActive = false;
                 updateTypingIndicator();
                 sessionSelect.innerHTML = '<option value="">Error</option>';
-                setOnlineState(false, 'Session load failed');
+                const diagnostic = buildSessionLoadDiagnostic(error);
+                setOnlineState(false, diagnostic);
+                addMessage('system', diagnostic);
             }
         }
 
