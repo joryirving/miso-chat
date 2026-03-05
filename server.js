@@ -136,15 +136,43 @@ if (process.env.NODE_ENV === 'production') {
   }
 }
 
+function parseBooleanEnv(value, fallback) {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
+function parseSameSiteEnv(value, fallback) {
+  if (typeof value !== 'string' || !value.trim()) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'strict' || normalized === 'lax' || normalized === 'none') {
+    return normalized;
+  }
+  return fallback;
+}
+
+const sessionCookieSecure = parseBooleanEnv(process.env.SESSION_COOKIE_SECURE, process.env.NODE_ENV === 'production');
+const sessionCookieSameSite = parseSameSiteEnv(
+  process.env.SESSION_COOKIE_SAMESITE,
+  oidcEnabled ? 'lax' : 'strict'
+);
+
+if (sessionCookieSameSite === 'none' && !sessionCookieSecure) {
+  console.warn('⚠️ SESSION_COOKIE_SAMESITE=none without secure cookies may be rejected by modern browsers');
+}
+
 const sessionConfig = {
   secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: sessionCookieSecure,
     httpOnly: true,
     // OIDC auth redirects are cross-site; Strict drops session cookie on callback and causes loops.
-    sameSite: oidcEnabled ? 'lax' : 'strict',
+    // On mobile/WebView deployments that use an app origin, set SESSION_COOKIE_SAMESITE=none.
+    sameSite: sessionCookieSameSite,
     maxAge: 24 * 60 * 60 * 1000,
   },
 };

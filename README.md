@@ -46,9 +46,12 @@ docker run -d --name miso-chat \
 | `GATEWAY_URL` | Yes | - | WebSocket URL to OpenClaw gateway |
 | `PORT` | No | `3000` | Server port |
 | `SESSION_SECRET` | Yes | - | Secret for sessions |
+| `SESSION_COOKIE_SAMESITE` | No | `strict` (or `lax` when OIDC enabled) | Session cookie SameSite policy (`strict|lax|none`) |
+| `SESSION_COOKIE_SECURE` | No | `true` in production | Override session cookie `Secure` flag |
 | `OIDC_ENABLED` | No | `false` | Enable OIDC auth |
 | `LOCAL_USERS` | If local | `admin:password123` | Users (user:pass) |
 | `REDIS_URL` | No | - | Optional Redis/Dragonfly session store |
+| `CAPACITOR_COOKIES_ENABLED` | No | `true` | Enable Capacitor cookie bridge for native app builds |
 
 ## Security
 
@@ -72,6 +75,16 @@ npm run test   # Run tests
 npm run lint   # Lint
 ```
 
+
+## Mobile Session Persistence (Capacitor)
+
+For native APK builds, session persistence depends on cookie handling between the WebView and backend:
+
+- `capacitor.config.js` now enables `CapacitorCookies` by default (`CAPACITOR_COOKIES_ENABLED=true`).
+- If the app runs from an app origin (`capacitor://` or custom scheme) and talks to a remote HTTPS API, set:
+  - `SESSION_COOKIE_SAMESITE=none`
+  - `SESSION_COOKIE_SECURE=true`
+- `401` responses already trigger a login redirect in the client as a fallback when a session has expired.
 
 ## Testing
 

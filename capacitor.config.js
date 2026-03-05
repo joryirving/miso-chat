@@ -1,4 +1,5 @@
 const serverUrl = process.env.CAPACITOR_SERVER_URL || process.env.CAPACITOR_URL || '';
+const cookiesEnabled = process.env.CAPACITOR_COOKIES_ENABLED !== 'false';
 
 const config = {
   appId: process.env.CAPACITOR_APP_ID || 'chat.openclaw.client',
@@ -16,6 +17,9 @@ const config = {
       launchShowDuration: 3000,
       backgroundColor: '#0d0d14',
       androidScaleType: 'CENTER_CROP'
+    },
+    CapacitorCookies: {
+      enabled: cookiesEnabled
     }
   }
 };
