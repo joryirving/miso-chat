@@ -3305,6 +3305,20 @@
             resizeMessageInput();
             setOnlineState(false, 'Connecting...');
             await ensureMobileBackendConfigured();
+
+            // Handle deep links on mobile (when app is opened via misochat:// URL)
+            if (typeof window.Capacitor !== 'undefined' && window.Capacitor.isNativePlatform()) {
+                window.Capacitor.addListener('appUrlOpen', async (data) => {
+                    console.log('[DeepLink] URL opened:', data.url);
+                    const url = new URL(data.url);
+                    if (url.pathname === '/auth/callback' || url.pathname.endsWith('/auth/callback')) {
+                        await consumeMobileAuthTokenFromUrl();
+                        // Reload to trigger normal session load
+                        window.location.reload();
+                    }
+                });
+            }
+
             await consumeMobileAuthTokenFromUrl();
             await loadConfig();
             await loadSessions();
