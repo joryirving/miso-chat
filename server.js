@@ -1556,8 +1556,9 @@ app.get('/api/reactions/:sessionKey', isAuthenticated, (req, res) => {
 app.get('/api/messages/:messageId/reactions', isAuthenticated, (req, res) => {
   try {
     const { messageId } = req.params;
-    const messageReactions = reactions.getForMessage(messageId);
-    res.json({ messageId, reactions: messageReactions });
+    const sessionKey = typeof req.query?.sessionKey === 'string' ? req.query.sessionKey : null;
+    const messageReactions = reactions.getForMessage(messageId, sessionKey);
+    res.json({ messageId, ...(sessionKey ? { sessionKey } : {}), reactions: messageReactions });
   } catch (error) {
     console.error('Error getting message reactions:', error.message);
     res.status(500).json({ error: error.message });

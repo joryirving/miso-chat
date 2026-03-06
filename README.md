@@ -159,7 +159,7 @@ manager.on('reconnect-failed', (err) => {
 
 ### Reactions
 - `GET /api/reactions/:sessionKey` - Get all reactions for a session
-- `GET /api/messages/:messageId/reactions` - Get reactions for a message
+- `GET /api/messages/:messageId/reactions` - Get reactions for a message (optionally scoped with `?sessionKey=...`)
 - `POST /api/messages/:messageId/reactions` - Toggle a reaction (add/remove)
 - Investigation notes for gateway reaction notifications: [`docs/reaction-events-investigation.md`](docs/reaction-events-investigation.md)
 
