@@ -336,6 +336,17 @@ setInterval(() => {
   }
 }, 60 * 1000).unref?.();
 
+function establishLoginSession(req, user, cb) {
+  if (!req.session?.regenerate) {
+    return req.logIn(user, cb);
+  }
+
+  return req.session.regenerate((regenErr) => {
+    if (regenErr) return cb(regenErr);
+    return req.logIn(user, cb);
+  });
+}
+
 const isAuthenticated = (req, res, next) => {
   if (authMode === 'none') return next();
   if (req.isAuthenticated()) return next();
@@ -392,9 +403,21 @@ app.post('/login', (req, res, next) => {
 
   const returnTo = getReturnTo(req, '/');
   const failureReturnTo = encodeURIComponent(returnTo);
-  return passport.authenticate('local', {
-    successRedirect: returnTo,
-    failureRedirect: `/login?error=invalid&return_to=${failureReturnTo}`,
+
+  return passport.authenticate('local', (err, user) => {
+    if (err) return next(err);
+    if (!user) {
+      return res.redirect(`/login?error=invalid&return_to=${failureReturnTo}`);
+    }
+
+    return establishLoginSession(req, user, (loginErr) => {
+      if (loginErr) {
+        console.error('Local login session setup failed:', loginErr.message || loginErr);
+        return res.redirect(`/login?error=invalid&return_to=${failureReturnTo}`);
+      }
+
+      return res.redirect(returnTo);
+    });
   })(req, res, next);
 });
 app.get('/auth/oidc', (req, res, next) => {
@@ -412,17 +435,14 @@ app.get('/auth/oidc/callback', (req, res, next) => {
       return res.redirect(`/login?error=oidc_failed&return_to=${returnTo}`);
     }
 
-    return req.logIn(user, (loginErr) => {
+    const storedReturnTo = req.session?.oidcReturnTo;
+    const mobileFlowFromSession = Boolean(req.session?.oidcMobileFlow);
+
+    return establishLoginSession(req, user, (loginErr) => {
       if (loginErr) {
         const returnTo = encodeURIComponent(getReturnTo(req, '/'));
+        console.error('OIDC login session setup failed:', loginErr.message || loginErr);
         return res.redirect(`/login?error=oidc_failed&return_to=${returnTo}`);
-      }
-
-      const storedReturnTo = req.session?.oidcReturnTo;
-      const mobileFlowFromSession = Boolean(req.session?.oidcMobileFlow);
-      if (req.session) {
-        delete req.session.oidcReturnTo;
-        delete req.session.oidcMobileFlow;
       }
 
       const ua = String(req.get('user-agent') || '');
@@ -504,8 +524,9 @@ app.post('/api/mobile-auth/consume', (req, res) => {
     return res.status(400).json({ error: 'Invalid or expired token' });
   }
 
-  return req.logIn(user, (err) => {
+  return establishLoginSession(req, user, (err) => {
     if (err) {
+      console.error('Mobile auth session setup failed:', err.message || err);
       return res.status(500).json({ error: 'Failed to establish session' });
     }
     return res.json({ ok: true });
