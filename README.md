@@ -197,8 +197,6 @@ manager.on('reconnect-failed', (err) => {
 
 ## Changelog
 
-## Changelog
-
 ### v0.3.0 (2026-03-01)
 - **#125**: Add reaction counts like Discord - reactions now show count badges
 - **#126**: Add dark/light theme toggle with localStorage persistence
