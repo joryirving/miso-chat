@@ -23,6 +23,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run regression tests
+        run: npm run test:ci
+
       - name: Run auth-required smoke test
         run: ./scripts/ci-auth-smoke.sh
 
