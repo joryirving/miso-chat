@@ -53,6 +53,22 @@ docker run -d --name miso-chat \
 | `LOCAL_USERS` | If local | `admin:password123` | Users (user:pass) |
 | `REDIS_URL` | No | - | Optional Redis/Dragonfly session store |
 | `CAPACITOR_COOKIES_ENABLED` | No | `true` | Enable Capacitor cookie bridge for native app builds |
+| `PUSH_NOTIFICATIONS_ENABLED` | No | `false` | Enable web push prerequisites checks/config exposure |
+| `PUSH_VAPID_PUBLIC_KEY` | If push enabled | - | VAPID public key used by clients for subscription |
+| `PUSH_VAPID_PRIVATE_KEY` | If push enabled | - | VAPID private key used by server-side delivery |
+| `PUSH_VAPID_SUBJECT` | No | `mailto:admin@example.com` | VAPID subject claim (`mailto:` URL recommended) |
+
+## Push Notifications (Prerequisites)
+
+Issue #255 is tracking push notifications end-to-end. This release adds explicit configuration prerequisites so deployments can be validated before delivery wiring is enabled.
+
+Minimum requirements when enabling push:
+- `PUSH_NOTIFICATIONS_ENABLED=true`
+- Valid `PUSH_VAPID_PUBLIC_KEY` and `PUSH_VAPID_PRIVATE_KEY`
+- `PUSH_VAPID_SUBJECT` set to a valid contact URL (usually `mailto:...`)
+- OpenClaw gateway support for notification delivery
+
+If push is enabled without VAPID keys, the app now reports push as not ready in `/api/config` and logs a startup warning.
 
 ## Security
 

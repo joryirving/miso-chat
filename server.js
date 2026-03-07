@@ -661,6 +661,20 @@ const CHAT_DISPLAY_NAME = process.env.CHAT_DISPLAY_NAME || process.env.ASSISTANT
 const APP_TITLE = process.env.APP_TITLE || `${CHAT_DISPLAY_NAME} Chat`;
 const DEFAULT_SESSION_KEY = process.env.OPENCLAW_SESSION_KEY || process.env.MISO_CHAT_SESSION_KEY || 'agent:main:main';
 
+const PUSH_NOTIFICATIONS_ENABLED = parseBooleanEnv(process.env.PUSH_NOTIFICATIONS_ENABLED, false);
+const PUSH_VAPID_PUBLIC_KEY = (process.env.PUSH_VAPID_PUBLIC_KEY || '').trim();
+const PUSH_VAPID_PRIVATE_KEY = (process.env.PUSH_VAPID_PRIVATE_KEY || '').trim();
+const PUSH_VAPID_SUBJECT = (process.env.PUSH_VAPID_SUBJECT || 'mailto:admin@example.com').trim();
+
+const pushMissingConfig = [];
+if (!PUSH_VAPID_PUBLIC_KEY) pushMissingConfig.push('PUSH_VAPID_PUBLIC_KEY');
+if (!PUSH_VAPID_PRIVATE_KEY) pushMissingConfig.push('PUSH_VAPID_PRIVATE_KEY');
+const pushNotificationsReady = !PUSH_NOTIFICATIONS_ENABLED || pushMissingConfig.length === 0;
+
+if (PUSH_NOTIFICATIONS_ENABLED && pushMissingConfig.length > 0) {
+  console.warn(`⚠️ Push notifications enabled but missing config: ${pushMissingConfig.join(', ')}`);
+}
+
 app.get('/api/config', (req, res) => {
   res.json({
     title: APP_TITLE,
@@ -671,6 +685,13 @@ app.get('/api/config', (req, res) => {
     localAuthEnabled,
     oidcEnabled,
     oidcLabel: getOidcLabel(),
+    pushNotifications: {
+      enabled: PUSH_NOTIFICATIONS_ENABLED,
+      ready: pushNotificationsReady,
+      vapidPublicKeyConfigured: Boolean(PUSH_VAPID_PUBLIC_KEY),
+      vapidSubject: PUSH_VAPID_SUBJECT,
+      missingConfig: PUSH_NOTIFICATIONS_ENABLED ? pushMissingConfig : [],
+    },
   });
 });
 
