@@ -919,6 +919,7 @@
             <button class="icon-btn menu-toggle" id="menuBtn" title="More" aria-label="More">☰</button>
             <div class="action-menu" id="actionMenu" role="menu" aria-label="Actions">
                 <button type="button" id="menuSoundBtn" role="menuitem">🔕 Toggle sound</button>
+                <button type="button" id="menuDesktopNotifyBtn" role="menuitem">🛎️ Alerts</button>
                 <button type="button" id="menuThemeBtn" role="menuitem">🌙 Toggle theme</button>
                 <button type="button" id="menuBackendBtn" role="menuitem">🌐 Backend URL</button>
                 <button type="button" id="menuLogoutBtn" role="menuitem">⎋ Logout</button>
@@ -955,6 +956,7 @@
         const QUEUE_STORAGE_KEY = 'miso.pendingQueue';
         const REACTION_STORAGE_KEY = 'miso.messageReactions.v1';
         const NOTIFY_SOUND_KEY = 'miso.notify.soundEnabled.v1';
+        const NOTIFY_DESKTOP_KEY = 'miso.notify.desktopEnabled.v1';
         const REACTION_OPTIONS = ['❤️', '👍', '😂', '👀'];
         const HISTORY_POLL_INTERVAL_MS = 8000;
         const QUEUE_RETRY_BASE_DELAY_MS = 5000;
@@ -1641,6 +1643,8 @@
         const ORIGINAL_TITLE = 'OpenClaw Chat';
         const NEW_MESSAGE_TITLE = '💬 New message';
         let soundEnabled = localStorage.getItem(NOTIFY_SOUND_KEY) === '1';
+        let desktopNotificationsEnabled = localStorage.getItem(NOTIFY_DESKTOP_KEY) !== '0';
+        const activeDesktopNotifications = new Set();
         let baseTitle = document.title;
         const sessionMetaByKey = new Map();
         const ASSISTANT_NAME_STORAGE_KEY = 'openclaw.assistantName';
@@ -2119,6 +2123,7 @@
         const menuBtn = document.getElementById('menuBtn');
         const actionMenu = document.getElementById('actionMenu');
         const menuSoundBtn = document.getElementById('menuSoundBtn');
+        const menuDesktopNotifyBtn = document.getElementById('menuDesktopNotifyBtn');
         const menuThemeBtn = document.getElementById('menuThemeBtn');
         const menuBackendBtn = document.getElementById('menuBackendBtn');
         const menuLogoutBtn = document.getElementById('menuLogoutBtn');
@@ -2342,6 +2347,103 @@
             menuSoundBtn.textContent = soundEnabled ? '🔔 Sound: on' : '🔕 Sound: off';
         }
 
+        function browserNotificationsSupported() {
+            return typeof window.Notification !== 'undefined';
+        }
+
+        function closeActiveDesktopNotifications() {
+            for (const notification of activeDesktopNotifications) {
+                try { notification.close(); } catch {}
+            }
+            activeDesktopNotifications.clear();
+        }
+
+        async function requestDesktopNotificationPermission(interactive = false) {
+            if (!browserNotificationsSupported()) return 'unsupported';
+            const current = Notification.permission;
+            if (current !== 'default') return current;
+            if (!interactive || typeof Notification.requestPermission !== 'function') return current;
+
+            try {
+                return await Notification.requestPermission();
+            } catch {
+                return Notification.permission;
+            }
+        }
+
+        function updateDesktopNotificationToggle() {
+            if (!menuDesktopNotifyBtn) return;
+
+            if (!browserNotificationsSupported()) {
+                menuDesktopNotifyBtn.textContent = '🚫 Alerts: unsupported';
+                menuDesktopNotifyBtn.disabled = true;
+                return;
+            }
+
+            menuDesktopNotifyBtn.disabled = false;
+            if (!desktopNotificationsEnabled) {
+                menuDesktopNotifyBtn.textContent = '🛎️ Alerts: off';
+                return;
+            }
+
+            if (Notification.permission === 'granted') {
+                menuDesktopNotifyBtn.textContent = '🔔 Alerts: on';
+                return;
+            }
+
+            if (Notification.permission === 'denied') {
+                menuDesktopNotifyBtn.textContent = '🚫 Alerts: blocked';
+                return;
+            }
+
+            menuDesktopNotifyBtn.textContent = '🛎️ Alerts: click to allow';
+        }
+
+        function buildNotificationPreview(rawText) {
+            const plain = String(rawText || '')
+                .replace(/`{1,3}/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            if (!plain) return `New message from ${configuredAssistantName}`;
+            return plain.length > 180 ? `${plain.slice(0, 177)}...` : plain;
+        }
+
+        function showDesktopNotification(rawText) {
+            if (!desktopNotificationsEnabled) return;
+            if (!document.hidden) return;
+            if (!browserNotificationsSupported()) return;
+            if (Notification.permission !== 'granted') return;
+
+            try {
+                const notification = new Notification(configuredAssistantName || 'Assistant', {
+                    body: buildNotificationPreview(rawText),
+                    icon: '/icon-192.png',
+                    badge: '/favicon-32x32.png',
+                    tag: `miso-chat:${currentSessionKey || 'default'}`,
+                    renotify: true,
+                });
+
+                activeDesktopNotifications.add(notification);
+                notification.onclick = () => {
+                    try { window.focus(); } catch {}
+                    closeActiveDesktopNotifications();
+                    clearUnreadNotifications();
+                };
+                notification.onclose = () => {
+                    activeDesktopNotifications.delete(notification);
+                };
+
+                setTimeout(() => {
+                    if (!activeDesktopNotifications.has(notification)) return;
+                    try { notification.close(); } catch {}
+                    activeDesktopNotifications.delete(notification);
+                }, 15000);
+            } catch (error) {
+                console.warn('Desktop notification failed:', error);
+            }
+        }
+
         function updateThemeToggle() {
             if (!menuThemeBtn) return;
             const theme = localStorage.getItem(THEME_STORAGE_KEY) || 'dark';
@@ -2404,11 +2506,12 @@
             }
         }
 
-        function notifyAssistantReply() {
+        function notifyAssistantReply(rawText = '') {
             if (!document.hidden) return;
             unreadNotifications += 1;
             updateDocumentTitle();
             playNotificationTone();
+            showDesktopNotification(rawText);
         }
 
         function setOnlineState(online, text = null) {
@@ -2906,7 +3009,7 @@
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
             if (sender === 'miso' && !options.suppressNotify) {
-                notifyAssistantReply();
+                notifyAssistantReply(hasText ? text : 'New assistant update');
             }
         }
 
@@ -3482,6 +3585,31 @@
             localStorage.setItem(NOTIFY_SOUND_KEY, soundEnabled ? '1' : '0');
             updateSoundToggle();
         });
+        menuDesktopNotifyBtn?.addEventListener('click', async () => {
+            closeActionMenu();
+
+            if (!browserNotificationsSupported()) {
+                window.alert('Desktop notifications are not supported in this browser.');
+                updateDesktopNotificationToggle();
+                return;
+            }
+
+            desktopNotificationsEnabled = !desktopNotificationsEnabled;
+            localStorage.setItem(NOTIFY_DESKTOP_KEY, desktopNotificationsEnabled ? '1' : '0');
+
+            if (!desktopNotificationsEnabled) {
+                closeActiveDesktopNotifications();
+                updateDesktopNotificationToggle();
+                return;
+            }
+
+            const permission = await requestDesktopNotificationPermission(true);
+            if (permission === 'denied') {
+                window.alert('Notifications are blocked in your browser settings. Allow notifications for this site to enable alerts.');
+            }
+
+            updateDesktopNotificationToggle();
+        });
         menuThemeBtn?.addEventListener('click', () => {
             closeActionMenu();
             toggleTheme();
@@ -3496,15 +3624,22 @@
         });
 
         document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) clearUnreadNotifications();
+            if (!document.hidden) {
+                closeActiveDesktopNotifications();
+                clearUnreadNotifications();
+            }
         });
-        window.addEventListener('focus', clearUnreadNotifications);
+        window.addEventListener('focus', () => {
+            closeActiveDesktopNotifications();
+            clearUnreadNotifications();
+        });
         window.addEventListener('online', handleBrowserConnectivityChange);
         window.addEventListener('offline', handleBrowserConnectivityChange);
 
         (async () => {
             initTheme();
             updateSoundToggle();
+            updateDesktopNotificationToggle();
             assistantNameEl.textContent = configuredAssistantName;
             messageInput.placeholder = `Message ${configuredAssistantName}...`; 
             resizeMessageInput();
