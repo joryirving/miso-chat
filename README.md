@@ -14,6 +14,7 @@
 - 🔐 **Authentication**: OIDC (Authentik, Okta, Google) + local username/password fallback
 - 💬 **Real-time chat**: WebSocket connection to OpenClaw gateway
 - 📱 **Mobile-friendly**: PWA-style responsive UI with native app feel
+- 🔔 **Background alerts**: Optional browser notifications + sounds for assistant replies when tab is hidden
 - 🐳 **Containerized**: Docker + Kubernetes deployment ready
 - 🔒 **Security hardened**: Non-root user, rate limiting, XSS protection
 - 🤖 **Automated**: CI/CD with linting, testing, and multi-platform builds
@@ -101,6 +102,14 @@ For native APK builds, session persistence depends on cookie handling between th
   - `SESSION_COOKIE_SAMESITE=none`
   - `SESSION_COOKIE_SECURE=true`
 - `401` responses already trigger a login redirect in the client as a fallback when a session has expired.
+
+## Background Notifications
+
+Browser notifications are available when the tab is in the background.
+
+- Open the top-right menu (`☰`) and toggle **Alerts** on.
+- The app will ask for browser notification permission once.
+- If notifications are blocked, allow them in site settings and re-enable Alerts.
 
 ## Testing
 
