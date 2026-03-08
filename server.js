@@ -364,6 +364,12 @@ function establishLoginSession(req, user, cb) {
   });
 }
 
+function persistLoginSession(req, cb) {
+  if (!req.session?.save) return cb();
+
+  return req.session.save((saveErr) => cb(saveErr));
+}
+
 const isAuthenticated = (req, res, next) => {
   if (authMode === 'none') return next();
   if (req.isAuthenticated()) return next();
@@ -433,7 +439,14 @@ app.post('/login', (req, res, next) => {
         return res.redirect(`/login?error=invalid&return_to=${failureReturnTo}`);
       }
 
-      return res.redirect(returnTo);
+      return persistLoginSession(req, (saveErr) => {
+        if (saveErr) {
+          console.error('Local login session persist failed:', saveErr.message || saveErr);
+          return res.redirect(`/login?error=invalid&return_to=${failureReturnTo}`);
+        }
+
+        return res.redirect(returnTo);
+      });
     });
   })(req, res, next);
 });
@@ -462,23 +475,31 @@ app.get('/auth/oidc/callback', (req, res, next) => {
         return res.redirect(`/login?error=oidc_failed&return_to=${returnTo}`);
       }
 
-      const ua = String(req.get('user-agent') || '');
-      const isMobileUa = /Android|iPhone|iPad|iPod/i.test(ua);
-      const mobileFlow = mobileFlowFromSession || (isMobileUa && !storedReturnTo);
+      return persistLoginSession(req, (saveErr) => {
+        if (saveErr) {
+          const returnTo = encodeURIComponent(getReturnTo(req, '/'));
+          console.error('OIDC login session persist failed:', saveErr.message || saveErr);
+          return res.redirect(`/login?error=oidc_failed&return_to=${returnTo}`);
+        }
 
-      const safeReturnTo = storedReturnTo
-        ? getReturnTo({ query: { return_to: storedReturnTo } }, '/')
-        : (mobileFlow ? 'misochat://auth/callback' : '/');
+        const ua = String(req.get('user-agent') || '');
+        const isMobileUa = /Android|iPhone|iPad|iPod/i.test(ua);
+        const mobileFlow = mobileFlowFromSession || (isMobileUa && !storedReturnTo);
 
-      if (mobileFlow) {
-        const token = issueMobileAuthToken(user);
-        const target = new URL('/auth/mobile-complete', `${req.protocol}://${req.get('host')}`);
-        target.searchParams.set('token', token);
-        target.searchParams.set('return_to', safeReturnTo);
-        return res.redirect(target.toString());
-      }
+        const safeReturnTo = storedReturnTo
+          ? getReturnTo({ query: { return_to: storedReturnTo } }, '/')
+          : (mobileFlow ? 'misochat://auth/callback' : '/');
 
-      return res.redirect(safeReturnTo);
+        if (mobileFlow) {
+          const token = issueMobileAuthToken(user);
+          const target = new URL('/auth/mobile-complete', `${req.protocol}://${req.get('host')}`);
+          target.searchParams.set('token', token);
+          target.searchParams.set('return_to', safeReturnTo);
+          return res.redirect(target.toString());
+        }
+
+        return res.redirect(safeReturnTo);
+      });
     });
   })(req, res, next);
 });
@@ -546,7 +567,15 @@ app.post('/api/mobile-auth/consume', (req, res) => {
       console.error('Mobile auth session setup failed:', err.message || err);
       return res.status(500).json({ error: 'Failed to establish session' });
     }
-    return res.json({ ok: true });
+
+    return persistLoginSession(req, (saveErr) => {
+      if (saveErr) {
+        console.error('Mobile auth session persist failed:', saveErr.message || saveErr);
+        return res.status(500).json({ error: 'Failed to establish session' });
+      }
+
+      return res.json({ ok: true });
+    });
   });
 });
 
