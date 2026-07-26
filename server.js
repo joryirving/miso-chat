@@ -1524,17 +1524,18 @@ const initGatewayWsManager = async () => {
 async function startServer() {
   return new Promise((resolve, reject) => {
     server.listen(PORT, async () => {
-  const gatewayHttpUrl = process.env.GATEWAY_URL || process.env.OPENCLAW_API_URL || '(not set)';
-  const gatewayWsUrl = process.env.GATEWAY_WS_URL || 'ws://openclaw.llm.svc.cluster.local:18789';
-  const gatewayWsOriginLabel = process.env.GATEWAY_WS_ORIGIN || '(none)';
-  const gatewayWsClientId = GATEWAY_WS_CLIENT_ID;
-  const gatewayWsClientMode = GATEWAY_WS_CLIENT_MODE;
-  const gatewayDeviceIdentityPath = GATEWAY_DEVICE_IDENTITY_PATH;
-  const defaultSessionKey = DEFAULT_SESSION_KEY;
-  const pushNotificationsEnabled = process.env.PUSH_NOTIFICATIONS_ENABLED === 'true';
-  const pushConfigReady = (process.env.PUSH_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY) && (process.env.PUSH_VAPID_PRIVATE_KEY || process.env.VAPID_PRIVATE_KEY) && (process.env.PUSH_VAPID_SUBJECT || process.env.PUSH_SUBJECT);
+      try {
+        const gatewayHttpUrl = process.env.GATEWAY_URL || process.env.OPENCLAW_API_URL || '(not set)';
+        const gatewayWsUrl = process.env.GATEWAY_WS_URL || 'ws://openclaw.llm.svc.cluster.local:18789';
+        const gatewayWsOriginLabel = process.env.GATEWAY_WS_ORIGIN || '(none)';
+        const gatewayWsClientId = GATEWAY_WS_CLIENT_ID;
+        const gatewayWsClientMode = GATEWAY_WS_CLIENT_MODE;
+        const gatewayDeviceIdentityPath = GATEWAY_DEVICE_IDENTITY_PATH;
+        const defaultSessionKey = DEFAULT_SESSION_KEY;
+        const pushNotificationsEnabled = process.env.PUSH_NOTIFICATIONS_ENABLED === 'true';
+        const pushConfigReady = (process.env.PUSH_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY) && (process.env.PUSH_VAPID_PRIVATE_KEY || process.env.VAPID_PRIVATE_KEY) && (process.env.PUSH_VAPID_SUBJECT || process.env.PUSH_SUBJECT);
 
-  console.log(`
+        console.log(`
 🎉 miso-chat v${APP_VERSION} server running on port ${PORT}
    
    Gateway: ${gatewayHttpUrl}
@@ -1554,8 +1555,12 @@ async function startServer() {
    - GET  /api/sessions/:key/history
    - POST /api/sessions/:key/send
   `);
-      await initGatewayWsManager();
-      resolve(server);
+        await initGatewayWsManager();
+        resolve(server);
+      } catch (err) {
+        console.error('❌ Error during server startup:', err.message);
+        reject(err);
+      }
     });
     server.on('error', reject);
   });
