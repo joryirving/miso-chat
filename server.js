@@ -8,7 +8,6 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const dns = require("dns");
-const { promisify } = require("util");
 require('dotenv').config();
 
 const { GatewayWsManager } = require('./lib/gateway-ws');
@@ -1080,17 +1079,13 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
       // Per-phase timeouts for this hop
       const hopController = new AbortController();
 
-      // DNS timeout: wrap dns.lookup in a timeout promise
+      // DNS timeout: use AbortSignal.timeout to abort the lookup on slow DNS
       const dnsStart = Date.now();
-      const dnsTimeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('dns')), LINK_PREVIEW_DNS_TIMEOUT_MS);
-      });
 
       try {
-        await Promise.race([
-          promisify(dns.lookup)(host),
-          dnsTimeoutPromise,
-        ]);
+        await dns.promises.lookup(host, {
+          signal: AbortSignal.timeout(LINK_PREVIEW_DNS_TIMEOUT_MS)
+        });
       } catch {
         const dnsElapsed = Date.now() - dnsStart;
         clearTimeout(overallTimeoutHandle);
