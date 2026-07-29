@@ -372,8 +372,8 @@ const authLimiter = rateLimit({
 app.use('/api/', limiter);
 
 // Middleware
-app.use(express.json({ limit: '10kb' }));
-app.use(express.urlencoded({ extended: false }));
+app.use(express.json({ limit: '10kb', type: 'application/json' }));
+app.use(express.urlencoded({ extended: false, limit: '1kb', type: 'application/x-www-form-urlencoded' }));
 // Protect direct access to index file
 app.use((req, res, next) => {
   if (req.path === '/index.html' && !req.isAuthenticated?.()) {
