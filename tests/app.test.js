@@ -59,6 +59,37 @@ test('GET /api/auth reports unauthenticated local auth state', async () => {
   assert.equal(body.requiresAuth, true);
 });
 
+test('POST /login with urlencoded body >1kb returns 413', async () => {
+  const largeBody = 'username=a&password=' + 'x'.repeat(2000);
+  const res = await request('/login', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Length': String(largeBody.length),
+    },
+    body: largeBody,
+  });
+
+  assert.equal(res.statusCode, 413);
+});
+
+test('POST /login with wrong Content-Type for urlencoded is not parsed', async () => {
+  // When Content-Type doesn't match, express.urlencoded() skips parsing.
+  // The login route sees an empty body and redirects (302) rather than
+  // accepting the payload — confirming the type restriction works.
+  const res = await request('/login', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/plain',
+      'Content-Length': String('username=a&password=b'.length),
+    },
+    body: 'username=a&password=b',
+  });
+
+  // 302 redirect means the form was not parsed (no credentials extracted)
+  assert.equal(res.statusCode, 302);
+});
+
 test.after(() => {
   server.close();
 });
