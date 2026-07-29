@@ -51,6 +51,8 @@ module.exports = [
         self: 'readonly',
         caches: 'readonly',
         fetch: 'readonly',
+        console: 'readonly',
+        clients: 'readonly',
       },
     },
     rules: {
