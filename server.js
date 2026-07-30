@@ -373,6 +373,11 @@ app.use('/api/', limiter);
 // Middleware
 app.use(express.json({ limit: '10kb', type: 'application/json' }));
 app.use(express.urlencoded({ extended: false, limit: '1kb', type: 'application/x-www-form-urlencoded' }));
+
+// Validate Content-Type for POST/PUT/PATCH requests
+const validateContentType = require('./lib/middleware/validate-content-type');
+app.use(validateContentType);
+
 // Protect direct access to index file
 app.use((req, res, next) => {
   if (req.path === '/index.html' && !req.isAuthenticated?.()) {
