@@ -1,6 +1,6 @@
 {
   "name": "miso-chat",
-  "version": "0.4.19",
+  "version": "0.4.20",
   "private": true,
   "main": "server.js",
   "scripts": {
@@ -43,9 +43,5 @@
     "passport-local": "^1.0.0",
     "redis": "^6.0.0",
     "ws": "^8.18.0"
-  },
-  "overrides": {
-    "brace-expansion": "^5.0.8",
-    "tar": "^7.5.21"
   }
 }
