@@ -73,10 +73,9 @@ test('POST /login with urlencoded body >1kb returns 413', async () => {
   assert.equal(res.statusCode, 413);
 });
 
-test('POST /login with wrong Content-Type for urlencoded is not parsed', async () => {
-  // When Content-Type doesn't match, express.urlencoded() skips parsing.
-  // The login route sees an empty body and redirects (302) rather than
-  // accepting the payload — confirming the type restriction works.
+test('POST /login with wrong Content-Type for urlencoded is rejected', async () => {
+  // The validate-content-type middleware rejects requests with unexpected
+  // Content-Type values before they reach the route handler.
   const res = await request('/login', {
     method: 'POST',
     headers: {
@@ -86,8 +85,8 @@ test('POST /login with wrong Content-Type for urlencoded is not parsed', async (
     body: 'username=a&password=b',
   });
 
-  // 302 redirect means the form was not parsed (no credentials extracted)
-  assert.equal(res.statusCode, 302);
+  // 415 Unsupported Media Type means the middleware rejected the request
+  assert.equal(res.statusCode, 415);
 });
 
 test('GET /api/auth includes Cache-Control: no-store header', async () => {
