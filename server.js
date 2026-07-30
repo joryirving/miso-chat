@@ -679,7 +679,10 @@ function extractTextParts(parts) {
     .map((part) => {
       if (typeof part === 'string') return part;
       if (!part || typeof part !== 'object') return '';
-      if (part?.type === 'tool_call' || part?.type === 'tool_result' || part?.type === 'tool_use') return '';
+      // Gateways use several spellings for these internal messages. Never
+      // surface their arguments or results as though they were chat text.
+      const type = String(part.type || '').replace(/[\s_-]/g, '').toLowerCase();
+      if (type === 'toolcall' || type === 'toolresult' || type === 'tooluse' || type === 'functioncall' || type === 'functionresult') return '';
       if (part?.type === 'text' && typeof part?.text === 'string') return part.text;
       if (typeof part?.text === 'string') return part.text;
       if (typeof part?.content === 'string') return part.content;

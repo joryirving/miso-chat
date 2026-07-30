@@ -211,3 +211,40 @@ test('GET /api/sessions/:key/history strips raw tool_result from stored assistan
     GatewayWsManager.prototype.send = originalSend;
   }
 });
+
+test('GET /api/sessions/:key/history hides camel-case and dashed tool events', async () => {
+  const originalIsConnected = GatewayWsManager.prototype.isConnected;
+  const originalSend = GatewayWsManager.prototype.send;
+
+  GatewayWsManager.prototype.isConnected = () => true;
+  GatewayWsManager.prototype.send = async (action) => {
+    if (action === 'chat.history') {
+      return {
+        result: {
+          messages: [{
+            role: 'assistant',
+            content: [
+              { type: 'toolCall', arguments: '{"query":"private"}' },
+              { type: 'tool-result', content: 'private tool output' },
+              { type: 'function_call', arguments: '{"token":"private"}' },
+              { type: 'text', text: 'Only this answer should be visible.' },
+            ],
+          }],
+        },
+      };
+    }
+    return {};
+  };
+
+  try {
+    await withServer(async (base) => {
+      const { res, body } = await fetchJson(base, '/api/sessions/default/history');
+      assert.equal(res.status, 200);
+      assert.equal(body.messages.length, 1);
+      assert.equal(body.messages[0].content, 'Only this answer should be visible.');
+    });
+  } finally {
+    GatewayWsManager.prototype.isConnected = originalIsConnected;
+    GatewayWsManager.prototype.send = originalSend;
+  }
+});
