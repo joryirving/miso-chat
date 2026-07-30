@@ -3178,11 +3178,7 @@
             contentWrap.className = 'message-content';
 
             const text = typeof content === 'string' ? content : (content?.text ?? content?.content ?? '');
-            const toolCalls = options.toolCalls || (typeof content === 'object' && content !== null ? content.toolCalls : null) || [];
-            const hasToolCalls = Array.isArray(toolCalls) && toolCalls.length > 0;
-            const hasText = String(text || '').trim().length > 0;
-            const hideRawToolOutput = sender === 'miso' && hasToolCalls;
-            const visibleText = hideRawToolOutput ? '' : text;
+            const visibleText = text;
             const hasVisibleText = String(visibleText || '').trim().length > 0;
 
             if (sender === 'system' && hasVisibleText) {
@@ -3192,10 +3188,10 @@
                 }
             }
 
-            if (hasVisibleText || (sender === 'miso' && hasToolCalls)) {
+            if (hasVisibleText) {
                 const bubble = document.createElement('div');
                 bubble.className = 'bubble';
-                renderBubbleContent(bubble, hasVisibleText ? visibleText : 'Used tools.');
+                renderBubbleContent(bubble, visibleText);
                 bubble.addEventListener('click', (event) => {
                     const btn = event.target.closest('.copy-code-btn');
                     if (!btn) return;
@@ -3210,15 +3206,9 @@
                 }
             }
 
-            if (hasToolCalls && false) {
-                toolCalls.forEach((tc) => {
-                    contentWrap.appendChild(renderToolCallBlock(tc));
-                });
-            }
-
             const shouldShowReactions = false;
             if (shouldShowReactions) {
-                const key = reactionKey(sender, hasVisibleText ? visibleText : (hasToolCalls ? 'toolCalls:' + toolCalls.length : ''), options.reactionKeyHint || options.messageId || '');
+                const key = reactionKey(sender, visibleText, options.reactionKeyHint || options.messageId || '');
                 const row = document.createElement('div');
                 row.className = 'reaction-row';
 
