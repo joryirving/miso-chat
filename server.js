@@ -454,17 +454,21 @@ app.get("/api/mobile/update-manifest", async (req, res) => {
 
 // Protected routes
 app.get('/', isAuthenticated, (req, res) => res.sendFile(__dirname + '/public/index.html'));
-app.get('/api/auth', (req, res) => res.json({
-  authenticated: authMode === 'none' ? true : req.isAuthenticated(),
-  user: req.user,
-  oidc: oidcEnabled,
-  authMode,
-  requiresAuth: authMode !== 'none',
-}));
+app.get('/api/auth', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({
+    authenticated: authMode === 'none' ? true : req.isAuthenticated(),
+    user: req.user,
+    oidc: oidcEnabled,
+    authMode,
+    requiresAuth: authMode !== 'none',
+  });
+});
 
 
 // GET /api/csrf-token — Return current per-session CSRF token (generate if missing).
 app.get('/api/csrf-token', isAuthenticated, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   const { generateCsrfToken } = require('./security');
   const token = generateCsrfToken(req);
   return res.json({ csrfToken: token });
@@ -779,6 +783,7 @@ app.get('/api/agents', isAuthenticated, async (_req, res) => {
 });
 
 app.get('/api/sessions', isAuthenticated, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   try {
     if (await waitForGatewayWsReady()) {
       try {
@@ -828,6 +833,7 @@ app.get('/api/sessions', isAuthenticated, async (req, res) => {
 });
 
 app.get('/api/sessions/:key/history', isAuthenticated, requireSessionAccess(authMode), async (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   try {
     const sessionKey = String(req.params.key || '').trim();
     if (!sessionKey) {
@@ -1418,6 +1424,7 @@ function inferAgentNameFromKey(sessionKey) {
 // Reaction routes extracted to lib/routes/reactions.js
 app.use('/api', createReactionsRoutes({ isAuthenticated, requireSessionAccess, authMode, reactions }));
 app.get('/api/config', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   return res.json({
     title: APP_TITLE,
     assistantName: CHAT_DISPLAY_NAME,
