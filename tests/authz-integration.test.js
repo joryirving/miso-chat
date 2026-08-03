@@ -22,7 +22,7 @@ async function withServer(envOverrides, run) {
   // Reset module cache so environment changes take effect between tests
   const keys = Object.keys(require.cache);
   for (const k of keys) {
-    if (k.includes('/miso-chat/')) delete require.cache[k];
+    if (k.includes('/miso-chat/') || k.endsWith('/server.js')) delete require.cache[k];
   }
 
   for (const [k, v] of Object.entries(envOverrides)) {
