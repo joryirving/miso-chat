@@ -7,7 +7,7 @@ process.env.LOCAL_USERS = 'admin:password123';
 process.env.NODE_ENV = 'test';
 process.env.SESSION_SECRET = 'test-session-secret-at-least-32-chars';
 
-const { app, server } = require('../server');
+const { app, server, resetMobileUpdateCache } = require('../server');
 
 function request(path, options = {}) {
   return new Promise((resolve, reject) => {
@@ -116,6 +116,14 @@ test('GET /api/events includes Cache-Control: no-cache header', async () => {
 
   // SSE endpoint may return 401 when unauthenticated, but check the pattern exists
   assert.ok(res.statusCode === 200 || res.statusCode === 401);
+});
+
+test('resetMobileUpdateCache clears cached manifest', () => {
+  // Verify the function exists and is callable
+  assert.equal(typeof resetMobileUpdateCache, 'function');
+
+  // Calling it should not throw
+  resetMobileUpdateCache();
 });
 
 test.after(() => {

@@ -147,6 +147,16 @@ const MOBILE_UPDATE_CACHE_TTL_MS = Number(process.env.MOBILE_UPDATE_CACHE_TTL_MS
 let mobileUpdateCache = null;
 let mobileUpdateCacheTime = 0;
 
+/**
+ * Reset the mobile update cache. Exposed for testing so that
+ * `/api/mobile/update-manifest` can be exercised in isolation
+ * without stale data leaking between test runs.
+ */
+function resetMobileUpdateCache() {
+  mobileUpdateCache = null;
+  mobileUpdateCacheTime = 0;
+}
+
 function decodeHtmlEntities(value) {
   return String(value || '')
     .replace(/&amp;/gi, '&')
@@ -1649,4 +1659,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, server, startServer, getReturnTo, gracefulShutdown };
+module.exports = { app, server, startServer, getReturnTo, gracefulShutdown, resetMobileUpdateCache };
