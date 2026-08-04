@@ -36,6 +36,7 @@ test('securityHeaders sets required baseline headers including CSP', () => {
   assert.equal(nextCalled, true);
   assert.equal(res.headers['X-Content-Type-Options'], 'nosniff');
   assert.equal(res.headers['X-Frame-Options'], 'DENY');
+  assert.equal(res.headers['X-DNS-Prefetch-Control'], 'off');
   assert.equal(res.headers['Referrer-Policy'], 'strict-origin-when-cross-origin');
   assert.equal(res.headers['Permissions-Policy'], 'camera=(), microphone=(), geolocation=()');
 
@@ -81,8 +82,11 @@ test('all required security headers are present on every response', () => {
   const requiredHeaders = [
     'X-Content-Type-Options',
     'X-Frame-Options',
+    'X-DNS-Prefetch-Control',
     'Referrer-Policy',
     'Permissions-Policy',
+    'Cross-Origin-Resource-Policy',
+    'Cross-Origin-Opener-Policy',
     'Content-Security-Policy',
   ];
 
@@ -93,10 +97,76 @@ test('all required security headers are present on every response', () => {
   // Specific header values
   assert.equal(res.headers['X-Content-Type-Options'], 'nosniff');
   assert.equal(res.headers['X-Frame-Options'], 'DENY');
+  assert.equal(res.headers['X-DNS-Prefetch-Control'], 'off');
   assert.equal(res.headers['Referrer-Policy'], 'strict-origin-when-cross-origin');
   assert.equal(
     res.headers['Permissions-Policy'],
     'camera=(), microphone=(), geolocation=()',
+  );
+  assert.equal(res.headers['Cross-Origin-Resource-Policy'], 'same-origin');
+  assert.equal(res.headers['Cross-Origin-Opener-Policy'], 'same-origin');
+});
+
+test('Strict-Transport-Security is omitted on plain-HTTP requests', () => {
+  const req = { protocol: 'http', headers: {} };
+  const res = createResponseMock();
+  securityHeaders(req, res, () => {});
+  assert.equal(
+    res.headers['Strict-Transport-Security'],
+    undefined,
+    'HSTS must not be emitted over plaintext HTTP',
+  );
+});
+
+test('Strict-Transport-Security is set when req.protocol is https', () => {
+  const req = { protocol: 'https', headers: {} };
+  const res = createResponseMock();
+  securityHeaders(req, res, () => {});
+  assert.equal(
+    res.headers['Strict-Transport-Security'],
+    'max-age=31536000; includeSubDomains',
+  );
+});
+
+test('Strict-Transport-Security is set when X-Forwarded-Proto is https', () => {
+  const req = { protocol: 'http', headers: { 'x-forwarded-proto': 'https' } };
+  const res = createResponseMock();
+  securityHeaders(req, res, () => {});
+  assert.equal(
+    res.headers['Strict-Transport-Security'],
+    'max-age=31536000; includeSubDomains',
+  );
+});
+
+test('Strict-Transport-Security is set when ENFORCE_HTTPS=true', () => {
+  const originalEnforceHttps = process.env.ENFORCE_HTTPS;
+  process.env.ENFORCE_HTTPS = 'true';
+  try {
+    const req = { protocol: 'http', headers: {} };
+    const res = createResponseMock();
+    securityHeaders(req, res, () => {});
+    assert.equal(
+      res.headers['Strict-Transport-Security'],
+      'max-age=31536000; includeSubDomains',
+    );
+  } finally {
+    if (originalEnforceHttps === undefined) {
+      delete process.env.ENFORCE_HTTPS;
+    } else {
+      process.env.ENFORCE_HTTPS = originalEnforceHttps;
+    }
+  }
+});
+
+test('Strict-Transport-Security honours comma-separated X-Forwarded-Proto', () => {
+  // Envoy/ALB often append to a comma-separated X-Forwarded-Proto; the first
+  // hop is the authoritative one.
+  const req = { protocol: 'http', headers: { 'x-forwarded-proto': 'https,http' } };
+  const res = createResponseMock();
+  securityHeaders(req, res, () => {});
+  assert.equal(
+    res.headers['Strict-Transport-Security'],
+    'max-age=31536000; includeSubDomains',
   );
 });
 
