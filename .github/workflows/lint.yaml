@@ -32,6 +32,9 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
+      - name: Check CSP hash manifest
+        run: npm run check:csp-hashes
+
   dockerfile-lint:
     runs-on: ubuntu-latest
     steps:
