@@ -173,9 +173,9 @@ jobs:
             "channels": {
               "internal": {
                 "version": "${VERSION}",
-                "bundleUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/ota-web-bundle",
-                "apkUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/miso-chat-release-apk",
-                "aabUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/miso-chat-release-aab",
+                "bundleUrl": "https://github.com/${{ github.repository }}/releases/download/${TAG}/dist.zip",
+                "apkUrl": "https://github.com/${{ github.repository }}/releases/download/${TAG}/miso-chat-${VERSION}-release.apk",
+                "aabUrl": "https://github.com/${{ github.repository }}/releases/download/${TAG}/miso-chat-${VERSION}.aab",
                 "digest": "${{ steps.digests.apk_sha256 }}",
                 "mandatory": false,
                 "notes": "Internal build from workflow dispatch — not for production use."
@@ -185,31 +185,35 @@ jobs:
           EOF
           cat update-manifest.json
 
-      # ---- Upload release APK to GitHub Release ----
-      - name: Upload Release APK
+      # ---- Rename artifacts for clarity in release assets ----
+      - name: Rename release artifacts
+        if: github.event_name == 'release'
+        run: |
+          APK_FILE=$(find android/app/build/outputs/apk/release -name '*.apk' -type f | head -1)
+          AAB_FILE=$(find android/app/build/outputs/bundle/release -name '*.aab' -type f | head -1)
+          cp "$APK_FILE" "miso-chat-${{ steps.version.outputs.version }}-release.apk"
+          cp "$AAB_FILE" "miso-chat-${{ steps.version.outputs.version }}.aab"
+
+      # ---- Upload release artifacts to GitHub Release ----
+      - name: Upload Release Assets
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
         with:
           files: |
-            android/app/build/outputs/apk/release/*.apk
+            miso-chat-${{ steps.version.outputs.version }}-release.apk
+            miso-chat-${{ steps.version.outputs.version }}.aab
             dist.zip
             update-manifest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ---- Rename APK for clarity in release assets ----
-      - name: Rename release APK
+      # ---- Verify release assets were uploaded ----
+      - name: Verify release assets
         if: github.event_name == 'release'
-        run: |
-          APK_FILE=$(find android/app/build/outputs/apk/release -name '*.apk' -type f | head -1)
-          cp "$APK_FILE" "miso-chat-${{ steps.version.outputs.version }}-release.apk"
-
-      # ---- Upload AAB to GitHub Release ----
-      - name: Upload Release AAB
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
-        with:
-          files: android/app/build/outputs/bundle/release/*.aab
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.version.outputs.version_tag }}
+        run: ./scripts/check-release-assets.sh "${{ steps.version.outputs.version_tag }}"
 
       # ---- Upload OTA Bundle Artifact (workflow_dispatch only) ----
       - name: Upload OTA Bundle Artifact
