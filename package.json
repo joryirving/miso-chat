@@ -43,5 +43,8 @@
     "passport-local": "^1.0.0",
     "redis": "^6.0.0",
     "ws": "^8.18.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true
   }
 }
