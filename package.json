@@ -30,18 +30,24 @@
     "@capacitor/cli": "^8.1.0",
     "@capacitor/core": "^8.1.0",
     "@capgo/capacitor-updater": "^8.43.10",
-    "better-sqlite3": "^13.0.0",
+    "better-sqlite3": "^11.10.0",
     "connect-redis": "^10.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.0.0",
     "express": "^5.0.0",
     "express-rate-limit": "^8.0.0",
     "express-session": "^1.18.1",
+    "jest": "^30.4.2",
     "multer": "^2.0.2",
     "openid-client": "^6.8.4",
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
     "redis": "^6.0.0",
+    "supertest": "^7.2.2",
     "ws": "^8.18.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@11.10.0": true,
+    "unrs-resolver@1.12.2": true
   }
 }
