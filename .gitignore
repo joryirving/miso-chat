@@ -4,3 +4,6 @@ node_modules/
 
 # SQLite database
 data/
+
+# CI test artifacts (uploaded as GitHub Actions artifact)
+test-results.json
