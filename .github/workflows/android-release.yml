@@ -107,46 +107,72 @@ jobs:
             echo "version_tag=v${VERSION}" >> $GITHUB_OUTPUT
           fi
 
-      # ---- Generate SHA-256 digests for OTA integrity ----
+      # ---- Rename artifacts for clarity in release assets ----
+      - name: Rename release artifacts
+        if: github.event_name == 'release'
+        run: |
+          APK_FILE=$(find android/app/build/outputs/apk/release -name '*.apk' -type f | head -1)
+          AAB_FILE=$(find android/app/build/outputs/bundle/release -name '*.aab' -type f | head -1)
+          if [ -z "$APK_FILE" ]; then echo "::error::No APK found in build output"; exit 1; fi
+          if [ -z "$AAB_FILE" ]; then echo "::error::No AAB found in build output"; exit 1; fi
+          cp "$APK_FILE" "miso-chat-${{ steps.version.outputs.version }}-release.apk"
+          cp "$AAB_FILE" "miso-chat-${{ steps.version.outputs.version }}.aab"
+
+      # ---- Generate SHA-256 digests for OTA integrity (after rename) ----
       - name: Compute artifact digests
         id: digests
         run: |
-          APK_PATH=$(find android/app/build/outputs/apk/release -name '*.apk' -type f | head -1)
-          AAB_PATH=$(find android/app/build/outputs/bundle/release -name '*.aab' -type f | head -1)
-          echo "apk_sha256=$(sha256sum "$APK_PATH" | awk '{print $1}')" >> $GITHUB_OUTPUT
-          echo "aab_sha256=$(sha256sum "$AAB_PATH" | awk '{print $1}')" >> $GITHUB_OUTPUT
-          echo "dist_sha256=$(sha256sum dist.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
+          APK_PATH="miso-chat-${{ steps.version.outputs.version }}-release.apk"
+          AAB_PATH="miso-chat-${{ steps.version.outputs.version }}.aab"
+          if [ ! -f "$APK_PATH" ]; then echo "::error::Renamed APK not found: $APK_PATH"; exit 1; fi
+          if [ ! -f "$AAB_PATH" ]; then echo "::error::Renamed AAB not found: $AAB_PATH"; exit 1; fi
+          APK_SHA256=$(sha256sum "$APK_PATH" | awk '{print $1}')
+          AAB_SHA256=$(sha256sum "$AAB_PATH" | awk '{print $1}')
+          DIST_SHA256=$(sha256sum dist.zip | awk '{print $1}')
+          if [ -z "$APK_SHA256" ]; then echo "::error::APK SHA-256 digest is empty"; exit 1; fi
+          echo "apk_sha256=${APK_SHA256}" >> $GITHUB_OUTPUT
+          echo "aab_sha256=${AAB_SHA256}" >> $GITHUB_OUTPUT
+          echo "dist_sha256=${DIST_SHA256}" >> $GITHUB_OUTPUT
 
       # ---- Generate Update Manifest (release events only) ----
       - name: Generate Update Manifest
         if: github.event_name == 'release'
         run: |
-          APK_PATH=$(find android/app/build/outputs/apk/release -name '*.apk' -type f | head -1)
-          AAB_PATH=$(find android/app/build/outputs/bundle/release -name '*.aab' -type f | head -1)
-          BASE_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version_tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.version_tag }}"
+          APK_SHA256="${{ steps.digests.apk_sha256 }}"
+          AAB_SHA256="${{ steps.digests.aab_sha256 }}"
+          DIST_SHA256="${{ steps.digests.dist_sha256 }}"
+
+          # Fail fast if digest is empty
+          if [ -z "$APK_SHA256" ]; then echo "::error::APK digest is empty — aborting manifest generation"; exit 1; fi
+
+          APK_FILE="miso-chat-${VERSION}-release.apk"
+          AAB_FILE="miso-chat-${VERSION}.aab"
+          BASE_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}"
 
           cat > update-manifest.json << EOF
           {
-            "version": "${{ steps.version.outputs.version }}",
-            "tag": "${{ steps.version.outputs.version_tag }}",
+            "version": "${VERSION}",
+            "tag": "${TAG}",
             "releaseDate": "${{ github.event.release.created_at }}",
             "releaseNotes": "${{ github.event.release.body }}",
             "digestAlgorithm": "sha-256",
             "channels": {
               "stable": {
-                "version": "${{ steps.version.outputs.version }}",
+                "version": "${VERSION}",
                 "bundleUrl": "${BASE_URL}/dist.zip",
-                "apkUrl": "${BASE_URL}/miso-chat-${{ steps.version.outputs.version }}-release.apk",
-                "aabUrl": "${BASE_URL}/miso-chat-${{ steps.version.outputs.version }}.aab",
-                "digest": "${{ steps.digests.apk_sha256 }}",
+                "apkUrl": "${BASE_URL}/${APK_FILE}",
+                "aabUrl": "${BASE_URL}/${AAB_FILE}",
+                "digest": "${APK_SHA256}",
                 "mandatory": false
               },
               "beta": {
-                "version": "${{ steps.version.outputs.version }}",
+                "version": "${VERSION}",
                 "bundleUrl": "${BASE_URL}/dist.zip",
-                "apkUrl": "${BASE_URL}/miso-chat-${{ steps.version.outputs.version }}-release.apk",
-                "aabUrl": "${BASE_URL}/miso-chat-${{ steps.version.outputs.version }}.aab",
-                "digest": "${{ steps.digests.apk_sha256 }}",
+                "apkUrl": "${BASE_URL}/${APK_FILE}",
+                "aabUrl": "${BASE_URL}/${AAB_FILE}",
+                "digest": "${APK_SHA256}",
                 "mandatory": false
               }
             }
@@ -158,10 +184,15 @@ jobs:
       - name: Generate Internal Manifest
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.channel == 'internal'
         run: |
-          APK_PATH=$(find android/app/build/outputs/apk/release -name '*.apk' -type f | head -1)
-          AAB_PATH=$(find android/app/build/outputs/bundle/release -name '*.aab' -type f | head -1)
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ steps.version.outputs.version_tag }}"
+          APK_SHA256="${{ steps.digests.apk_sha256 }}"
+
+          if [ -z "$APK_SHA256" ]; then echo "::error::APK digest is empty — aborting manifest generation"; exit 1; fi
+
+          APK_FILE="miso-chat-${VERSION}-release.apk"
+          AAB_FILE="miso-chat-${VERSION}.aab"
+          BASE_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}"
 
           cat > update-manifest.json << EOF
           {
@@ -173,10 +204,10 @@ jobs:
             "channels": {
               "internal": {
                 "version": "${VERSION}",
-                "bundleUrl": "https://github.com/${{ github.repository }}/releases/download/${TAG}/dist.zip",
-                "apkUrl": "https://github.com/${{ github.repository }}/releases/download/${TAG}/miso-chat-${VERSION}-release.apk",
-                "aabUrl": "https://github.com/${{ github.repository }}/releases/download/${TAG}/miso-chat-${VERSION}.aab",
-                "digest": "${{ steps.digests.apk_sha256 }}",
+                "bundleUrl": "${BASE_URL}/dist.zip",
+                "apkUrl": "${BASE_URL}/${APK_FILE}",
+                "aabUrl": "${BASE_URL}/${AAB_FILE}",
+                "digest": "${APK_SHA256}",
                 "mandatory": false,
                 "notes": "Internal build from workflow dispatch — not for production use."
               }
@@ -184,15 +215,6 @@ jobs:
           }
           EOF
           cat update-manifest.json
-
-      # ---- Rename artifacts for clarity in release assets ----
-      - name: Rename release artifacts
-        if: github.event_name == 'release'
-        run: |
-          APK_FILE=$(find android/app/build/outputs/apk/release -name '*.apk' -type f | head -1)
-          AAB_FILE=$(find android/app/build/outputs/bundle/release -name '*.aab' -type f | head -1)
-          cp "$APK_FILE" "miso-chat-${{ steps.version.outputs.version }}-release.apk"
-          cp "$AAB_FILE" "miso-chat-${{ steps.version.outputs.version }}.aab"
 
       # ---- Upload release artifacts to GitHub Release ----
       - name: Upload Release Assets
