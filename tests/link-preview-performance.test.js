@@ -30,16 +30,20 @@ test('HostConcurrencyLimiter allows different hosts to run independently', async
   const limiter = new HostConcurrencyLimiter({ maxConcurrentPerHost: 1 });
   let aActive = 0;
   let bActive = 0;
+  let aMax = 0;
+  let bMax = 0;
 
   const results = await Promise.all([
     limiter.run('host-a.com', async () => {
       aActive++;
+      if (aActive > aMax) aMax = aActive;
       await new Promise(resolve => setTimeout(resolve, 50));
       aActive--;
       return 'a';
     }),
     limiter.run('host-b.com', async () => {
       bActive++;
+      if (bActive > bMax) bMax = bActive;
       await new Promise(resolve => setTimeout(resolve, 50));
       bActive--;
       return 'b';
@@ -48,13 +52,15 @@ test('HostConcurrencyLimiter allows different hosts to run independently', async
 
   assert.equal(results[0], 'a');
   assert.equal(results[1], 'b');
+  assert.equal(aMax, 1, 'host-a should not exceed concurrency limit');
+  assert.equal(bMax, 1, 'host-b should not exceed concurrency limit');
 });
 
 test('HostConcurrencyLimiter serializes excess requests per host', async () => {
   const limiter = new HostConcurrencyLimiter({ maxConcurrentPerHost: 1 });
   const order = [];
 
-  const results = await Promise.all([
+  await Promise.all([
     limiter.run('example.com', async () => {
       order.push('start-1');
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -172,6 +178,9 @@ test('Simulates simultaneous slow DNS responses under concurrency limit', async 
   dnsTimes.forEach(t => {
     assert.ok(t >= 90 && t <= 150, `dns time ${t}ms out of expected range`);
   });
+
+  // Verify all tasks completed
+  assert.equal(results.length, 6, 'all 6 tasks should complete');
 });
 
 test('Per-host limiter prevents DNS thundering herd across multiple hosts', async () => {

@@ -127,7 +127,7 @@ test('MobileUpdateManager.destroy clears interval', () => {
   let clearedInterval = false;
   const sandbox = createSandbox();
   sandbox.setInterval = () => 42;
-  sandbox.clearInterval = (id) => { clearedInterval = true; };
+  sandbox.clearInterval = (_id) => { clearedInterval = true; };
 
   assert.doesNotThrow(() => {
     vm.runInNewContext(src, sandbox, { filename: 'update-manager.js' });

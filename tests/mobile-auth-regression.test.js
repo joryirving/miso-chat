@@ -5,7 +5,6 @@ const path = require('node:path');
 
 const loginHtmlPath = path.join(__dirname, '..', 'public', 'login.html');
 const indexHtmlPath = path.join(__dirname, '..', 'public', 'index.html');
-const serverJsPath = path.join(__dirname, '..', 'server.js');
 const authSessionPath = path.join(__dirname, '..', 'lib', 'auth-session.js');
 const androidManifestPath = path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'AndroidManifest.xml');
 

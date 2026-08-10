@@ -1,6 +1,5 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const http = require('node:http');
 const { fork } = require('node:child_process');
 const path = require('node:path');
 
@@ -10,7 +9,7 @@ process.env.NODE_ENV = 'test';
 process.env.SESSION_SECRET = 'test-session-secret-at-least-32-chars-long';
 process.env.PORT = '0'; // Use random port
 
-const { app, server, gracefulShutdown } = require('../server');
+const { gracefulShutdown } = require('../server');
 
 test('gracefulShutdown is exported as a function', () => {
   assert.equal(typeof gracefulShutdown, 'function');
