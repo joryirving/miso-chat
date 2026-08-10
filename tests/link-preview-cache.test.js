@@ -149,7 +149,7 @@ test('PreviewCoalescer cancelAll clears pending promises', async () => {
   const fn = async () => { count++; await new Promise(r => setTimeout(r, 1000)); return 'ok'; };
 
   // Start a long-running call
-  const p = coalescer.run('key', fn);
+  coalescer.run('key', fn);
   assert.equal(count, 1);
 
   // Cancel it

@@ -106,7 +106,7 @@ test('GatewayWsManager stores pending requests for recovery on disconnect', () =
   
   // Add a pending request
   let pendingResolve, pendingReject;
-  const promise = new Promise((resolve, reject) => {
+  new Promise((resolve, reject) => {
     pendingResolve = resolve;
     pendingReject = reject;
   });
@@ -130,7 +130,7 @@ test('GatewayWsManager recovers pending requests after reconnect', () => {
   manager.connected = true;
   
   let pendingResolve;
-  const promise = new Promise((resolve) => { pendingResolve = resolve; });
+  new Promise((resolve) => { pendingResolve = resolve; });
   const id = manager.createRequestId('test');
   const timeout = setTimeout(() => {}, 50);
   manager._recoveryPending = new Map([[id, { 
@@ -159,7 +159,7 @@ test('GatewayWsManager disconnect clears all timers and state', () => {
   manager._reconnectTimer = setTimeout(() => {}, 50);
   
   let rejectedWith = null;
-  const promise = new Promise((resolve, reject) => {
+  const promise = new Promise((_resolve, _reject) => {
     const id = manager.createRequestId('test');
     const timeout = setTimeout(() => {}, 50);
     manager.pendingRequests.set(id, { resolve: () => {}, reject: (err) => { rejectedWith = err.message; }, timeout });

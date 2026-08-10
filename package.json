@@ -24,12 +24,6 @@
     "tar": "^7.5.21"
   },
   "dependencies": {
-    "@capacitor/android": "^8.1.0",
-    "@capacitor/app": "^8.0.1",
-    "@capacitor/browser": "^8.0.2",
-    "@capacitor/cli": "^8.1.0",
-    "@capacitor/core": "^8.1.0",
-    "@capgo/capacitor-updater": "^8.43.10",
     "better-sqlite3": "^13.0.0",
     "connect-redis": "^10.0.0",
     "cors": "^2.8.5",
@@ -43,6 +37,14 @@
     "passport-local": "^1.0.0",
     "redis": "^6.0.0",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/app": "^8.0.1",
+    "@capacitor/browser": "^8.0.2",
+    "@capacitor/cli": "^8.1.0",
+    "@capacitor/core": "^8.1.0",
+    "@capgo/capacitor-updater": "^8.43.10"
   },
   "allowScripts": {
     "better-sqlite3@13.0.3": true
