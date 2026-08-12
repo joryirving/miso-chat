@@ -327,6 +327,10 @@
             min-width: 0;
         }
 
+        .messages.tool-calls-hidden .tool-call {
+            display: none;
+        }
+
         .message-time {
             font-size: 11px;
             color: var(--text-secondary);
@@ -816,6 +820,131 @@
             color: var(--text-secondary);
             margin-bottom: 4px;
         }
+
+        .thinking-block {
+            margin-top: 2px;
+            border: 1px solid var(--border);
+            border-left: 3px solid #b18cff;
+            border-radius: 12px;
+            background: rgba(177, 140, 255, 0.06);
+            color: var(--text-secondary);
+            overflow: hidden;
+        }
+
+        .thinking-block summary {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            user-select: none;
+        }
+
+        .thinking-block summary:hover {
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .thinking-content {
+            padding: 0 12px 10px;
+            font-size: 13px;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .assistant-media {
+            margin-top: 8px;
+        }
+
+        .assistant-media img {
+            display: block;
+            max-width: min(100%, 720px);
+            max-height: 70vh;
+            border-radius: 8px;
+        }
+
+        .ask-user-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.58);
+        }
+
+        .ask-user-backdrop[hidden] {
+            display: none;
+        }
+
+        .ask-user-dialog {
+            width: min(100%, 520px);
+            max-height: min(80vh, 720px);
+            overflow: auto;
+            padding: 20px;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            background: var(--bg-secondary);
+            box-shadow: 0 18px 60px rgba(0, 0, 0, 0.4);
+        }
+
+        .ask-user-dialog h2 {
+            margin: 0 0 10px;
+            font-size: 18px;
+        }
+
+        .ask-user-message {
+            margin: 0 0 14px;
+            white-space: pre-wrap;
+            color: var(--text-secondary);
+        }
+
+        .ask-user-options {
+            display: grid;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .ask-user-options button,
+        .ask-user-actions button {
+            min-height: 42px;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .ask-user-options button:hover,
+        .ask-user-actions button:hover {
+            border-color: var(--accent);
+        }
+
+        .ask-user-input {
+            width: 100%;
+            min-height: 90px;
+            box-sizing: border-box;
+            resize: vertical;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-primary);
+            background: var(--bg-primary);
+        }
+
+        .ask-user-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .ask-user-actions .primary {
+            color: #fff;
+            background: var(--accent);
+        }
         
         /* Input */
         .input-area {
@@ -1149,6 +1278,7 @@
             <div class="action-menu" id="actionMenu" role="menu" aria-label="Actions">
                 <button type="button" id="menuSoundBtn" role="menuitem">🔕 Toggle sound</button>
                 <button type="button" id="menuDesktopNotifyBtn" role="menuitem">🛎️ Alerts</button>
+                <button type="button" id="menuToolCallsBtn" role="menuitem">🛠️ Tool calls: on</button>
                 <button type="button" id="menuThemeBtn" role="menuitem">🌙 Toggle theme</button>
                 <button type="button" id="menuBackendBtn" role="menuitem">🌐 Backend URL</button>
                 <button type="button" id="menuLogoutBtn" role="menuitem">⎋ Logout</button>
@@ -1163,6 +1293,19 @@
             <span></span>
             <span></span>
             <span></span>
+        </div>
+    </div>
+
+    <div class="ask-user-backdrop" id="askUserBackdrop" hidden>
+        <div class="ask-user-dialog" role="dialog" aria-modal="true" aria-labelledby="askUserTitle">
+            <h2 id="askUserTitle">OpenClaw needs input</h2>
+            <p class="ask-user-message" id="askUserMessage"></p>
+            <div class="ask-user-options" id="askUserOptions"></div>
+            <textarea class="ask-user-input" id="askUserInput" rows="3" placeholder="Type your answer…"></textarea>
+            <div class="ask-user-actions">
+                <button type="button" id="askUserCancelBtn">Dismiss</button>
+                <button type="button" class="primary" id="askUserSubmitBtn">Send answer</button>
+            </div>
         </div>
     </div>
     
@@ -1188,6 +1331,7 @@
         const REACTION_STORAGE_KEY = 'miso.messageReactions.v1';
         const NOTIFY_SOUND_KEY = 'miso.notify.soundEnabled.v1';
         const NOTIFY_DESKTOP_KEY = 'miso.notify.desktopEnabled.v1';
+        const TOOL_CALLS_VISIBILITY_KEY = 'miso.toolCallsVisible.v1';
         const REACTION_OPTIONS = ['❤️', '👍', '😂', '👀'];
         const HISTORY_POLL_INTERVAL_MS = 8000;
         const QUEUE_RETRY_BASE_DELAY_MS = 5000;
@@ -1260,6 +1404,9 @@
         let queueLastKnownOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
         let sseConnected = false;
         let sseTypingActive = false;
+        let liveAssistantTurn = null;
+        let showToolCalls = localStorage.getItem(TOOL_CALLS_VISIBILITY_KEY) !== '0';
+        let pendingAskUser = null;
         let historyMessageKeys = new Set();
         let localAssistantEchoes = new Map();
         // storedSessionKey is managed by lib/session-key-hydration.js
@@ -1827,6 +1974,21 @@
             return block;
         }
 
+        function appendThinkingBlock(container, thinking) {
+            const text = String(thinking || '').trim();
+            if (!text) return;
+
+            const details = document.createElement('details');
+            details.className = 'thinking-block';
+            const summary = document.createElement('summary');
+            summary.textContent = 'Thinking';
+            const body = document.createElement('div');
+            body.className = 'thinking-content';
+            renderBubbleContent(body, text);
+            details.append(summary, body);
+            container.appendChild(details);
+        }
+
         function queueId() {
             return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         }
@@ -2211,9 +2373,17 @@
         const actionMenu = document.getElementById('actionMenu');
         const menuSoundBtn = document.getElementById('menuSoundBtn');
         const menuDesktopNotifyBtn = document.getElementById('menuDesktopNotifyBtn');
+        const menuToolCallsBtn = document.getElementById('menuToolCallsBtn');
         const menuThemeBtn = document.getElementById('menuThemeBtn');
         const menuBackendBtn = document.getElementById('menuBackendBtn');
         const menuLogoutBtn = document.getElementById('menuLogoutBtn');
+        const askUserBackdrop = document.getElementById('askUserBackdrop');
+        const askUserTitle = document.getElementById('askUserTitle');
+        const askUserMessage = document.getElementById('askUserMessage');
+        const askUserOptions = document.getElementById('askUserOptions');
+        const askUserInput = document.getElementById('askUserInput');
+        const askUserCancelBtn = document.getElementById('askUserCancelBtn');
+        const askUserSubmitBtn = document.getElementById('askUserSubmitBtn');
 
         const shortcodeSuggestions = document.createElement('div');
         shortcodeSuggestions.className = 'shortcode-suggestions';
@@ -2433,6 +2603,13 @@
         function updateSoundToggle() {
             if (!menuSoundBtn) return;
             menuSoundBtn.textContent = soundEnabled ? '🔔 Sound: on' : '🔕 Sound: off';
+        }
+
+        function updateToolCallsToggle() {
+            messagesDiv.classList.toggle('tool-calls-hidden', !showToolCalls);
+            if (menuToolCallsBtn) {
+                menuToolCallsBtn.textContent = showToolCalls ? '🛠️ Tool calls: on' : '🛠️ Tool calls: off';
+            }
         }
 
 
@@ -2753,7 +2930,6 @@
                 const response = await apiFetch('/api/agents');
                 if (!response.ok) return;
                 const data = await response.json();
-                await loadAgentDirectory();
                 const agents = Array.isArray(data?.agents) ? data.agents : [];
                 agentDirectoryById.clear();
                 agents.forEach((agent) => {
@@ -3116,7 +3292,9 @@
                     addMessage(sender, msg.content, {
                         reactionKeyHint,
                         messageId: msg.messageId,
+                        thinking: msg.thinking,
                         toolCalls: msg.toolCalls,
+                        mediaUrls: msg.mediaUrls,
                         timestamp: msg.timestamp,
                         model: msg.model,
                     });
@@ -3144,10 +3322,10 @@
             }
         }
 
-    function addImage(url) {
+    function addImage(url, target = messagesDiv) {
         if (!isSafeImageUrl(url)) return;
 
-        const div = document.createElement('div'); div.className = 'message miso';
+        const div = document.createElement('div'); div.className = target === messagesDiv ? 'message miso' : 'assistant-media';
         const img = document.createElement('img'); img.src = url; img.loading = 'lazy';
         img.style.maxWidth = '100%'; img.style.borderRadius = '8px'; img.style.marginTop = '8px';
         img.onload = () => { messagesDiv.scrollTop = messagesDiv.scrollHeight; };
@@ -3157,10 +3335,10 @@
             a.style.cssText = 'display:block;padding:12px;background:var(--bg-secondary);border-radius:8px;margin-top:8px;color:var(--accent);';
             div.appendChild(a);
         };
-        div.appendChild(img); messagesDiv.appendChild(div);
+        div.appendChild(img); target.appendChild(div);
     }
 
-    function addMessage(sender, content, options = {}) {
+        function addMessage(sender, content, options = {}) {
             const div = document.createElement('div');
             div.className = `message ${sender}`;
 
@@ -3204,6 +3382,20 @@
                 if (hasVisibleText && sender !== 'system') {
                     void appendLinkPreviews(contentWrap, visibleText);
                 }
+            }
+
+            if (sender === 'miso') {
+                appendThinkingBlock(contentWrap, options.thinking);
+            }
+
+            if (sender === 'miso' && Array.isArray(options.toolCalls)) {
+                options.toolCalls.forEach((toolCall) => {
+                    contentWrap.appendChild(renderToolCallBlock(toolCall));
+                });
+            }
+
+            if (sender === 'miso' && Array.isArray(options.mediaUrls)) {
+                options.mediaUrls.forEach((url) => addImage(url, contentWrap));
             }
 
             const shouldShowReactions = false;
@@ -3303,6 +3495,274 @@
             if (sender === 'miso' && !options.suppressNotify) {
                 notifyAssistantReply(content);
             }
+
+            return div;
+        }
+
+        function clientVisibleAssistantText(value) {
+            if (typeof value === 'string') {
+                return value
+                    .replace(/<(?:thinking|reasoning|analysis|assistant[_-]?thinking)>[\s\S]*?<\/(?:thinking|reasoning|analysis|assistant[_-]?thinking)>/gi, '')
+                    .trim();
+            }
+            if (!value || typeof value !== 'object') return '';
+            if (Array.isArray(value)) {
+                return value.map((part) => {
+                    if (!part || typeof part !== 'object') return typeof part === 'string' ? part : '';
+                    const type = String(part.type || '').replace(/[\s_-]/g, '').toLowerCase();
+                    if (['thinking', 'reasoning', 'analysis', 'toolcall', 'toolresult', 'tooluse', 'functioncall', 'functionresult'].includes(type)) return '';
+                    return clientVisibleAssistantText(part.text ?? part.content ?? '');
+                }).filter(Boolean).join('\n').trim();
+            }
+            return clientVisibleAssistantText(value.content ?? value.text ?? value.message ?? '');
+        }
+
+        function extractGatewayThinking(value, depth = 0) {
+            if (depth > 6 || value === null || value === undefined) return '';
+            if (typeof value === 'string') return value.trim();
+            if (Array.isArray(value)) {
+                return [...new Set(value.map((part) => {
+                    if (typeof part === 'string') return part.trim();
+                    if (!part || typeof part !== 'object') return '';
+                    const type = String(part.type || part.kind || '').replace(/[\s_-]/g, '').toLowerCase();
+                    const direct = part.thinking ?? part.reasoning ?? part.analysis ?? part.reasoningContent ?? part.reasoning_content;
+                    if (!['thinking', 'reasoning', 'analysis', 'assistantthinking'].includes(type) && direct === undefined) return '';
+                    return extractGatewayThinking(direct ?? part.text ?? part.content, depth + 1);
+                }).filter(Boolean))].join('\n').trim();
+            }
+            if (typeof value !== 'object') return '';
+
+            for (const key of ['thinking', 'reasoning', 'analysis', 'reasoningContent', 'reasoning_content']) {
+                if (value[key] !== undefined) {
+                    const text = extractGatewayThinking(value[key], depth + 1);
+                    if (text) return text;
+                }
+            }
+            for (const key of ['content', 'parts', 'response', 'message']) {
+                if (value[key] && typeof value[key] === 'object') {
+                    const text = extractGatewayThinking(value[key], depth + 1);
+                    if (text) return text;
+                }
+            }
+            return '';
+        }
+
+        function normalizedGatewayEventData(eventData) {
+            if (!eventData || typeof eventData !== 'object') return {};
+            const nested = eventData.data && typeof eventData.data === 'object' ? eventData.data : {};
+            return { ...nested, ...eventData };
+        }
+
+        function gatewayEventSessionKey(eventData) {
+            const data = normalizedGatewayEventData(eventData);
+            return String(
+                data.sessionKey
+                || data.session_key
+                || data.key
+                || data.session?.sessionKey
+                || data.message?.sessionKey
+                || data.message?.session_key
+                || ''
+            ).trim();
+        }
+
+        function extractGatewayMediaUrls(eventData) {
+            const data = normalizedGatewayEventData(eventData);
+            const values = [data.mediaUrl, data.mediaUrls, data.imageUrl, data.image_url, data.message, data.content];
+            const urls = [];
+            const add = (value) => {
+                if (typeof value !== 'string') return;
+                const candidate = value.trim();
+                if (/^data:image\//i.test(candidate)) urls.push(candidate);
+                else {
+                    try {
+                        if (new URL(candidate).protocol === 'https:') urls.push(candidate);
+                    } catch { /* ignore non-URL media */ }
+                }
+            };
+            values.forEach((value) => Array.isArray(value) ? value.forEach(add) : add(value));
+            return [...new Set(urls)];
+        }
+
+        function needsInputDetails(text) {
+            const value = String(text || '');
+            const match = value.match(/(?:^|\n)\s*(OpenClaw|Codex)\s+needs\s+input\s*:\s*([\s\S]*)/i);
+            if (!match) return null;
+
+            const before = value.slice(0, match.index).trimEnd();
+            const lines = match[2].split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+            let title = `${match[1]} needs input`;
+            if (lines[0] && !/^\d+[.)]\s+/.test(lines[0]) && lines[0].length <= 80) {
+                title = lines.shift();
+            }
+            const options = lines
+                .map((line) => line.match(/^\d+[.)]\s+(.+)$/)?.[1]?.trim())
+                .filter(Boolean);
+            const message = lines.filter((line) => !/^\d+[.)]\s+/.test(line)).join('\n') || 'Please answer so the run can continue.';
+            return { before, title, message, options: [...new Set(options)] };
+        }
+
+        function closeAskUserModal() {
+            pendingAskUser = null;
+            if (askUserBackdrop) askUserBackdrop.hidden = true;
+            if (askUserOptions) askUserOptions.innerHTML = '';
+            if (askUserInput) askUserInput.value = '';
+        }
+
+        function showAskUserModal(details, sessionKey) {
+            if (!details || !askUserBackdrop) return;
+            pendingAskUser = { ...details, sessionKey };
+            askUserTitle.textContent = details.title;
+            askUserMessage.textContent = details.message;
+            askUserOptions.innerHTML = '';
+            details.options.forEach((option) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.textContent = option;
+                button.addEventListener('click', () => {
+                    askUserInput.value = option;
+                    submitAskUserAnswer();
+                });
+                askUserOptions.appendChild(button);
+            });
+            askUserBackdrop.hidden = false;
+            if (details.options.length === 0) askUserInput.focus();
+        }
+
+        function submitAskUserAnswer() {
+            const answer = String(askUserInput?.value || '').trim();
+            const sessionKey = pendingAskUser?.sessionKey;
+            if (!answer || !sessionKey) return;
+            closeAskUserModal();
+            sendMessage(answer);
+        }
+
+        askUserCancelBtn?.addEventListener('click', closeAskUserModal);
+        askUserSubmitBtn?.addEventListener('click', submitAskUserAnswer);
+        askUserBackdrop?.addEventListener('click', (event) => {
+            if (event.target === askUserBackdrop) closeAskUserModal();
+        });
+
+        function renderLiveAssistantTurn() {
+            if (!liveAssistantTurn) return;
+            if (!liveAssistantTurn.node) {
+                liveAssistantTurn.node = addMessage('miso', '', { suppressNotify: true });
+            }
+            const contentWrap = liveAssistantTurn.node.querySelector('.message-content');
+            if (!contentWrap) return;
+            contentWrap.innerHTML = '';
+
+            appendThinkingBlock(contentWrap, liveAssistantTurn.thinking);
+
+            const details = needsInputDetails(liveAssistantTurn.text);
+            const visibleText = details?.before ?? liveAssistantTurn.text;
+            if (details) showAskUserModal(details, liveAssistantTurn.sessionKey);
+
+            if (visibleText) {
+                const bubble = document.createElement('div');
+                bubble.className = 'bubble';
+                renderBubbleContent(bubble, visibleText);
+                contentWrap.appendChild(bubble);
+            }
+            liveAssistantTurn.toolCalls.forEach((toolCall) => {
+                contentWrap.appendChild(renderToolCallBlock(toolCall));
+            });
+            liveAssistantTurn.mediaUrls.forEach((url) => addImage(url, contentWrap));
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function ensureLiveAssistantTurn(sessionKey) {
+            if (!liveAssistantTurn || liveAssistantTurn.sessionKey !== sessionKey) {
+                liveAssistantTurn = { sessionKey, text: '', thinking: '', toolCalls: [], mediaUrls: [], node: null };
+            }
+            return liveAssistantTurn;
+        }
+
+        function mergeLiveAssistantText(sessionKey, text, { replace = false, cumulative = false } = {}) {
+            const next = String(text || '');
+            if (!next) return;
+            const turn = ensureLiveAssistantTurn(sessionKey);
+            if (replace) turn.text = next;
+            else if (cumulative) {
+                if (next.startsWith(turn.text)) turn.text = next;
+                else if (!turn.text.startsWith(next)) turn.text += next;
+            } else if (!turn.text.endsWith(next)) {
+                turn.text += next;
+            }
+            turn.mediaUrls.push(...extractGatewayMediaUrls({ message: { content: next } }));
+            turn.mediaUrls = [...new Set(turn.mediaUrls)];
+            renderLiveAssistantTurn();
+        }
+
+        function handleGatewayChatEvent(eventData) {
+            const data = normalizedGatewayEventData(eventData);
+            const sessionKey = gatewayEventSessionKey(data);
+            if (!sessionKey || sessionKey !== currentSessionKey) return;
+            const role = String(data.role || data.message?.role || data.message?.sender || '').toLowerCase();
+            if (role === 'user' || role === 'human') return;
+
+            const state = String(data.state || data.status || '').toLowerCase();
+            const thinking = extractGatewayThinking(data);
+            if (thinking) {
+                const turn = ensureLiveAssistantTurn(sessionKey);
+                turn.thinking = thinking;
+                renderLiveAssistantTurn();
+            }
+            const delta = data.deltaText ?? data.delta ?? data.message?.deltaText;
+            const snapshot = typeof data.message === 'string'
+                ? data.message
+                : clientVisibleAssistantText(data.message || data.content || data.text);
+
+            if (delta !== undefined && delta !== null) {
+                mergeLiveAssistantText(sessionKey, clientVisibleAssistantText(delta), { replace: data.replace === true });
+            } else if (snapshot) {
+                mergeLiveAssistantText(sessionKey, snapshot, { cumulative: true });
+            }
+
+            const mediaUrls = extractGatewayMediaUrls(data);
+            if (mediaUrls.length) {
+                const turn = ensureLiveAssistantTurn(sessionKey);
+                turn.mediaUrls = [...new Set([...turn.mediaUrls, ...mediaUrls])];
+                renderLiveAssistantTurn();
+            }
+
+            if (state === 'final' || state === 'aborted' || state === 'error' || data.final === true) {
+                const turn = liveAssistantTurn;
+                if (turn?.text) rememberLocalAssistantEcho(turn.text);
+                renderLiveAssistantTurn();
+                liveAssistantTurn = null;
+                void pollSessionHistory();
+            }
+        }
+
+        function handleGatewayToolEvent(eventData) {
+            const data = normalizedGatewayEventData(eventData);
+            const sessionKey = gatewayEventSessionKey(data);
+            if (!sessionKey || sessionKey !== currentSessionKey) return;
+            const name = String(data.name || data.toolName || data.tool || '').trim();
+            if (!name) return;
+
+            const turn = ensureLiveAssistantTurn(sessionKey);
+            const id = String(data.toolCallId || data.callId || data.id || `${name}-${turn.toolCalls.length}`);
+            let call = turn.toolCalls.find((candidate) => String(candidate.id) === id);
+            if (!call) {
+                call = { id, name, arguments: data.arguments ?? data.args ?? data.input ?? '', status: 'calling' };
+                turn.toolCalls.push(call);
+            }
+            call.name = name;
+            if (data.arguments !== undefined || data.args !== undefined || data.input !== undefined) {
+                call.arguments = data.arguments ?? data.args ?? data.input;
+            }
+            if (data.error !== undefined || data.failure !== undefined) {
+                call.error = data.error ?? data.failure;
+                call.status = 'error';
+            } else if (data.result !== undefined || data.output !== undefined) {
+                call.result = data.result ?? data.output;
+                call.status = 'success';
+            } else if (/done|result|end|error|complete/i.test(String(data.phase || data.status || ''))) {
+                call.status = /error|fail/i.test(String(data.phase || data.status || '')) ? 'error' : 'success';
+            }
+            renderLiveAssistantTurn();
         }
 
         function renderHistory(messages) {
@@ -3328,7 +3788,9 @@
                     reactionKeyHint,
                     messageId: msg.messageId,
                     suppressNotify: true,
+                    thinking: msg.thinking,
                     toolCalls: msg.toolCalls,
+                    mediaUrls: msg.mediaUrls,
                     timestamp: msg.timestamp,
                     model: msg.model,
                 });
@@ -3409,6 +3871,23 @@
                     if (eventType === 'typing.stop') {
                         sseTypingActive = false;
                         updateTypingIndicator();
+                    }
+                    if (eventType === 'chat' || eventType === 'session.message') {
+                        handleGatewayChatEvent(eventData);
+                    }
+                    if (eventType === 'session.tool') {
+                        handleGatewayToolEvent(eventData);
+                    }
+                    if (eventType === 'session.operation') {
+                        const operationSessionKey = gatewayEventSessionKey(eventData);
+                        if (operationSessionKey === currentSessionKey) {
+                            const operationState = String(normalizedGatewayEventData(eventData).state || normalizedGatewayEventData(eventData).status || '').toLowerCase();
+                            sseTypingActive = !/done|complete|finished|failed|aborted|error|idle/.test(operationState);
+                            updateTypingIndicator();
+                        }
+                    }
+                    if (eventType === 'sessions.changed') {
+                        void loadSessions();
                     }
                     if (eventType === 'error' && eventData?.message) {
                         addMessage('system', `Gateway error: ${eventData.message}`);
@@ -3521,6 +4000,10 @@
                     await persistStoredSessionKey(null);
                 }
 
+                if (currentSessionKey === selected.sessionKey && !notice) {
+                    sessionSelect.value = selected.sessionKey;
+                    return;
+                }
                 await selectSession(selected.sessionKey, { notice });
             } catch (error) {
                 console.error('Error loading sessions:', error);
@@ -3538,6 +4021,8 @@
             if (!sessionKey) return;
 
             currentSessionKey = sessionKey;
+            liveAssistantTurn = null;
+            closeAskUserModal();
             sseTypingActive = false;
             await persistStoredSessionKey(sessionKey);
             sessionSelect.value = sessionKey;
@@ -3615,10 +4100,16 @@
                     ? data.responseText
                     : (data.response?.text || data.response?.message);
                 const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls : [];
+                const mediaUrls = Array.isArray(data.mediaUrls) ? data.mediaUrls : [];
+                const thinking = String(data.thinking || '').trim();
                 const model = data.response?.model || data.model || null;
-                if ((text && text.trim()) || toolCalls.length > 0) {
+                if (data.needsInput) {
+                    const details = needsInputDetails(data.needsInput);
+                    if (details) showAskUserModal(details, activeSessionKey);
+                }
+                if ((text && text.trim()) || thinking || toolCalls.length > 0 || mediaUrls.length > 0) {
                     if (text && text.trim()) rememberLocalAssistantEcho(text);
-                    addMessage('miso', text || '', { reactionKeyHint: `reply:${next.id}`, toolCalls, model });
+                    addMessage('miso', text || '', { reactionKeyHint: `reply:${next.id}`, thinking, toolCalls, mediaUrls, model });
                 }
 
                 if (data.images && Array.isArray(data.images)) {
@@ -3934,6 +4425,12 @@
             updateSoundToggle();
             updateDesktopNotificationToggle();
         });
+        menuToolCallsBtn?.addEventListener('click', () => {
+            closeActionMenu();
+            showToolCalls = !showToolCalls;
+            localStorage.setItem(TOOL_CALLS_VISIBILITY_KEY, showToolCalls ? '1' : '0');
+            updateToolCallsToggle();
+        });
 menuDesktopNotifyBtn?.addEventListener('click', async () => {            closeActionMenu();            if (!browserNotificationsSupported()) return;            if (Notification.permission === 'default') {                const result = await requestDesktopNotificationPermission(true);                if (result !== 'granted') {                    desktopNotificationsEnabled = false;                    localStorage.setItem(NOTIFY_DESKTOP_KEY, '0');                } else {                    desktopNotificationsEnabled = true;                    localStorage.setItem(NOTIFY_DESKTOP_KEY, '1');                }            } else {                desktopNotificationsEnabled = !desktopNotificationsEnabled;                localStorage.setItem(NOTIFY_DESKTOP_KEY, desktopNotificationsEnabled ? '1' : '0');            }            if (!desktopNotificationsEnabled) {                closeActiveDesktopNotifications();            }            updateDesktopNotificationToggle();        });
         menuThemeBtn?.addEventListener('click', () => {
             closeActionMenu();
@@ -3960,6 +4457,7 @@ menuDesktopNotifyBtn?.addEventListener('click', async () => {            closeAc
             updateNativeBuildMarker();
             await registerNotificationServiceWorker();
             updateSoundToggle();
+            updateToolCallsToggle();
             updateDesktopNotificationToggle();
             assistantNameEl.textContent = configuredAssistantName;
             messageInput.placeholder = `Message ${configuredAssistantName}...`; 
@@ -3991,6 +4489,7 @@ menuDesktopNotifyBtn?.addEventListener('click', async () => {            closeAc
             await consumeMobileAuthTokenFromUrl();
             await hydrateStoredSessionKey();
             await loadConfig();
+            await loadAgentDirectory();
             await loadSessions();
             connectEventSource();
             await refreshBackendHealth();
