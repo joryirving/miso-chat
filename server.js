@@ -606,6 +606,44 @@ gatewayWsManager.on('error', (err) => {
   console.error('⚠️ Gateway WS error:', err?.message || err);
 });
 
+const gatewaySessionSubscriptions = new Set();
+const activeGatewaySessionSubscriptions = new Set();
+let gatewaySessionsSubscriptionActive = false;
+let gatewaySessionsSubscriptionPromise = null;
+
+async function subscribeToGatewaySessions() {
+  if (!gatewayWsManager?.isConnected?.() || gatewaySessionsSubscriptionActive) return;
+  if (gatewaySessionsSubscriptionPromise) return gatewaySessionsSubscriptionPromise;
+
+  gatewaySessionsSubscriptionPromise = (async () => {
+    try {
+      await gatewayWsManager.send('sessions.subscribe', {}, 10);
+      gatewaySessionsSubscriptionActive = true;
+    } catch (error) {
+      console.warn('Gateway session subscription failed:', error.message || error);
+    } finally {
+      gatewaySessionsSubscriptionPromise = null;
+    }
+  })();
+
+  return gatewaySessionsSubscriptionPromise;
+}
+
+async function subscribeToGatewaySession(sessionKey) {
+  const key = String(sessionKey || '').trim();
+  if (!key || !gatewayWsManager?.isConnected?.()) return;
+  gatewaySessionSubscriptions.add(key);
+  await subscribeToGatewaySessions();
+  if (activeGatewaySessionSubscriptions.has(key)) return;
+
+  try {
+    await gatewayWsManager.send('sessions.messages.subscribe', { key }, 10);
+    activeGatewaySessionSubscriptions.add(key);
+  } catch (error) {
+    console.warn(`Gateway message subscription failed for ${key}:`, error.message || error);
+  }
+}
+
 async function waitForGatewayWsReady(timeoutMs = 1500) {
   if (gatewayWsManager?.isConnected?.()) return true;
 
@@ -677,15 +715,16 @@ app.get('/api/health', (req, res) => {
 function extractTextParts(parts) {
   return (Array.isArray(parts) ? parts : [])
     .map((part) => {
-      if (typeof part === 'string') return part;
+      if (typeof part === 'string') return stripInternalAssistantText(part);
       if (!part || typeof part !== 'object') return '';
       // Gateways use several spellings for these internal messages. Never
       // surface their arguments or results as though they were chat text.
       const type = String(part.type || '').replace(/[\s_-]/g, '').toLowerCase();
       if (type === 'toolcall' || type === 'toolresult' || type === 'tooluse' || type === 'functioncall' || type === 'functionresult') return '';
-      if (part?.type === 'text' && typeof part?.text === 'string') return part.text;
-      if (typeof part?.text === 'string') return part.text;
-      if (typeof part?.content === 'string') return part.content;
+      if (type === 'thinking' || type === 'reasoning' || type === 'analysis' || type === 'assistantthinking') return '';
+      if (part?.type === 'text' && typeof part?.text === 'string') return stripInternalAssistantText(part.text);
+      if (typeof part?.text === 'string') return stripInternalAssistantText(part.text);
+      if (typeof part?.content === 'string') return stripInternalAssistantText(part.content);
       return '';
     })
     .filter(Boolean)
@@ -693,20 +732,224 @@ function extractTextParts(parts) {
     .trim();
 }
 
-function extractUserFacingAssistantText(value) {
+function stripInternalAssistantText(value) {
+  return String(value || '')
+    .replace(/<(?:thinking|reasoning|analysis|assistant[_-]?thinking)>[\s\S]*?<\/(?:thinking|reasoning|analysis|assistant[_-]?thinking)>/gi, '')
+    .replace(/(?:^|\n)\s*(?:OpenClaw|Codex)\s+needs\s+input\s*:[^\n]*(?:\n\s*(?!\d+[.)]\s+)[^\n]+)?(?:\n\s*\d+[.)]\s+[^\n]*)*\s*/gi, '\n')
+    .trim();
+}
+
+function extractNeedsInputPrompt(value, depth = 0) {
+  if (depth > 5 || value === null || value === undefined) return '';
+  if (typeof value === 'string') {
+    const match = value.match(/(?:^|\n)\s*(?:OpenClaw|Codex)\s+needs\s+input\s*:[\s\S]*/i);
+    return match ? match[0].trim() : '';
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const prompt = extractNeedsInputPrompt(item, depth + 1);
+      if (prompt) return prompt;
+    }
+    return '';
+  }
+  if (typeof value !== 'object') return '';
+  for (const key of ['content', 'parts', 'message', 'response', 'responseText', 'text']) {
+    const prompt = extractNeedsInputPrompt(value[key], depth + 1);
+    if (prompt) return prompt;
+  }
+  return '';
+}
+
+function normalizeToolCallList(value) {
+  const calls = Array.isArray(value) ? value : [];
+  return calls.map((call) => {
+    if (!call || typeof call !== 'object') return null;
+    const name = String(call.name || call.toolName || call.tool || '').trim();
+    if (!name) return null;
+
+    const hasResult = Object.prototype.hasOwnProperty.call(call, 'result')
+      || Object.prototype.hasOwnProperty.call(call, 'output');
+    const result = call.result ?? call.output;
+    const error = call.error ?? call.failure;
+    const status = String(
+      call.status
+      || (error ? 'error' : (hasResult ? 'success' : 'calling'))
+    ).trim();
+
+    return {
+      id: call.id || call.toolCallId || call.callId || null,
+      name,
+      arguments: call.arguments ?? call.input ?? call.args ?? '',
+      ...(error !== undefined && error !== null ? { error } : {}),
+      ...(hasResult ? { result } : {}),
+      status,
+    };
+  }).filter(Boolean);
+}
+
+function extractStructuredToolCalls(value) {
+  if (!value || typeof value !== 'object') return [];
+
+  const direct = normalizeToolCallList(
+    value.toolCalls
+    || value.tool_calls
+    || value.response?.toolCalls
+    || value.response?.tool_calls,
+  );
+  if (direct.length > 0) return direct;
+
+  const parts = Array.isArray(value.content)
+    ? value.content
+    : Array.isArray(value.parts)
+      ? value.parts
+      : [];
+  if (parts.length === 0) return [];
+
+  const calls = new Map();
+  parts.forEach((part, index) => {
+    if (!part || typeof part !== 'object') return;
+    const type = String(part.type || '').replace(/[\s_-]/g, '').toLowerCase();
+    const isCall = type === 'toolcall' || type === 'tooluse' || type === 'functioncall';
+    const isResult = type === 'toolresult' || type === 'functionresult';
+    if (!isCall && !isResult) return;
+
+    const id = String(part.id || part.toolCallId || part.callId || `tool-${index}`);
+    const existing = calls.get(id) || { id, name: '', arguments: '', status: 'calling' };
+    const name = String(part.name || part.toolName || part.tool || existing.name || '').trim();
+    if (name) existing.name = name;
+    if (isCall) {
+      existing.arguments = part.arguments ?? part.input ?? part.args ?? existing.arguments;
+    }
+    if (isResult) {
+      if (part.error !== undefined && part.error !== null) {
+        existing.error = part.error;
+        existing.status = 'error';
+      } else {
+        existing.result = part.result ?? part.output ?? part.content ?? '';
+        existing.status = 'success';
+      }
+    }
+    calls.set(id, existing);
+  });
+
+  return [...calls.values()].filter((call) => call.name);
+}
+
+function extractThinkingText(value, depth = 0) {
+  if (depth > 6 || value === null || value === undefined) return '';
   if (typeof value === 'string') return value.trim();
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((item) => {
+      if (typeof item === 'string') return item.trim();
+      if (!item || typeof item !== 'object') return '';
+      const type = String(item.type || item.kind || '').replace(/[\s_-]/g, '').toLowerCase();
+      const isThinkingBlock = ['thinking', 'reasoning', 'analysis', 'assistantthinking'].includes(type);
+      const direct = item.thinking ?? item.reasoning ?? item.analysis ?? item.reasoningContent ?? item.reasoning_content;
+      if (!isThinkingBlock && direct === undefined) return '';
+      return extractThinkingText(direct ?? item.text ?? item.content, depth + 1);
+    }).filter(Boolean))].join('\n').trim();
+  }
+  if (typeof value !== 'object') return '';
+
+  for (const key of ['thinking', 'reasoning', 'analysis', 'reasoningContent', 'reasoning_content']) {
+    if (value[key] !== undefined) {
+      const text = extractThinkingText(value[key], depth + 1);
+      if (text) return text;
+    }
+  }
+
+  for (const key of ['content', 'parts', 'response', 'message']) {
+    if (value[key] && typeof value[key] === 'object') {
+      const text = extractThinkingText(value[key], depth + 1);
+      if (text) return text;
+    }
+  }
+
+  return '';
+}
+
+function mergeHistoryToolResults(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  const isToolResultMessage = (message) => ['tool', 'toolresult'].includes(
+    String(message?.role || '').replace(/[\s_-]/g, '').toLowerCase(),
+  );
+  const callsById = new Map();
+  list.forEach((message) => {
+    if (message?.role !== 'assistant') return;
+    (Array.isArray(message.toolCalls) ? message.toolCalls : []).forEach((call) => {
+      if (call?.id) callsById.set(String(call.id), call);
+    });
+  });
+
+  list.forEach((message) => {
+    if (!isToolResultMessage(message)) return;
+    const toolCallId = String(message?.toolCallId || message?.callId || '').trim();
+    const call = toolCallId ? callsById.get(toolCallId) : null;
+    if (!call) return;
+    call.name = call.name || String(message?.toolName || '').trim();
+    call.result = extractUserFacingAssistantText(message);
+    call.status = message?.isError ? 'error' : 'success';
+    if (message?.isError) call.error = call.result;
+  });
+
+  return list.filter((message) => !isToolResultMessage(message));
+}
+
+function isRenderableMediaUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  const url = value.trim();
+  if (/^data:image\//i.test(url)) return true;
+  try {
+    return new URL(url).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function extractMediaUrls(value, depth = 0, output = []) {
+  if (!value || depth > 5) return [...new Set(output)];
+  if (Array.isArray(value)) {
+    value.forEach((item) => extractMediaUrls(item, depth + 1, output));
+    return [...new Set(output)];
+  }
+  if (typeof value !== 'object') return [...new Set(output)];
+
+  const add = (candidate) => {
+    if (isRenderableMediaUrl(candidate)) output.push(candidate.trim());
+  };
+  const mediaFields = [value.mediaUrl, value.mediaUrls, value.imageUrl, value.image_url];
+  mediaFields.forEach((candidate) => {
+    if (Array.isArray(candidate)) candidate.forEach(add);
+    else add(candidate);
+  });
+
+  const type = String(value.type || value.kind || '').toLowerCase();
+  if (/(image|audio|video|media)/.test(type)) {
+    add(value.url);
+    add(value.src);
+    add(value.href);
+  }
+
+  ['content', 'message', 'response', 'attachments', 'media', 'images'].forEach((key) => {
+    if (value[key] !== undefined) extractMediaUrls(value[key], depth + 1, output);
+  });
+  return [...new Set(output)];
+}
+
+function extractUserFacingAssistantText(value) {
+  if (typeof value === 'string') return stripInternalAssistantText(value);
   if (!value || typeof value !== 'object') return '';
   if (Array.isArray(value)) return extractTextParts(value);
   if (Array.isArray(value.content)) return extractTextParts(value.content);
   if (Array.isArray(value.parts)) return extractTextParts(value.parts);
-  if (typeof value.content === 'string') return value.content.trim();
-  if (typeof value.text === 'string') return value.text.trim();
-  if (typeof value.message === 'string') return value.message.trim();
+  if (typeof value.content === 'string') return stripInternalAssistantText(value.content);
+  if (typeof value.text === 'string') return stripInternalAssistantText(value.text);
+  if (typeof value.message === 'string') return stripInternalAssistantText(value.message);
   if (value.response && typeof value.response === 'object') {
     const nested = extractUserFacingAssistantText(value.response);
     if (nested) return nested;
   }
-  if (typeof value.responseText === 'string') return value.responseText.trim();
+  if (typeof value.responseText === 'string') return stripInternalAssistantText(value.responseText);
   return '';
 }
 
@@ -794,6 +1037,7 @@ app.get('/api/sessions', isAuthenticated, async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   try {
     if (await waitForGatewayWsReady()) {
+      await subscribeToGatewaySessions();
       try {
         const frame = await gatewayWsManager.send('sessions.list', { includeLastMessage: true, includeDerivedTitles: true }, 10);
         const payload = frame?.result ?? frame?.payload ?? frame?.data ?? frame;
@@ -852,6 +1096,7 @@ app.get('/api/sessions/:key/history', isAuthenticated, requireSessionAccess(auth
     let historyResult = null;
 
     if (await waitForGatewayWsReady()) {
+      await subscribeToGatewaySession(sessionKey);
       try {
         const frame = await gatewayWsManager.send('chat.history', { sessionKey, limit: 100 }, 10);
         payload = frame?.result ?? frame?.payload ?? frame?.data ?? frame;
@@ -864,7 +1109,7 @@ app.get('/api/sessions/:key/history', isAuthenticated, requireSessionAccess(auth
       historyResult = await gatewayInvoke('sessions_history', { sessionKey, limit: 100 });
       payload = unwrapToolResult(historyResult);
     }
-    const messages = (Array.isArray(payload?.messages)
+    const messages = mergeHistoryToolResults((Array.isArray(payload?.messages)
       ? payload.messages
       : Array.isArray(payload)
         ? payload
@@ -879,12 +1124,19 @@ app.get('/api/sessions/:key/history', isAuthenticated, requireSessionAccess(auth
               content,
               timestamp: msg?.timestamp || msg?.createdAt || msg?.time || null,
               model: msg?.model || msg?.response?.model || null,
-              toolCalls: [],
+              thinking: extractThinkingText(msg),
+              toolCalls: extractStructuredToolCalls(msg),
+              mediaUrls: extractMediaUrls(msg),
             };
           }).filter((msg) => {
             if (msg.role !== 'assistant') return true;
-            return Boolean(String(msg.content || '').trim());
-          });
+            return Boolean(
+              String(msg.content || '').trim()
+              || String(msg.thinking || '').trim()
+              || msg.toolCalls.length > 0
+              || msg.mediaUrls.length > 0
+            );
+          }));
 
     return res.json({ sessionKey, messages });
   } catch (error) {
@@ -912,6 +1164,7 @@ app.post('/api/sessions/:key/send', isAuthenticated, requireSessionAccess(authMo
     let result = null;
 
     if (await waitForGatewayWsReady()) {
+      await subscribeToGatewaySession(sessionKey);
       try {
         const frame = await gatewayWsManager.send('chat.send', { sessionKey, message: text, deliver: false, idempotencyKey: gatewayWsManager.createRequestId('msg') }, 30);
         payload = frame?.result ?? frame?.payload ?? frame?.data ?? frame;
@@ -927,7 +1180,11 @@ app.post('/api/sessions/:key/send', isAuthenticated, requireSessionAccess(authMo
 
     const body = payload && typeof payload === 'object' ? payload : { result: payload ?? result };
     const responseText = extractUserFacingAssistantText(body?.response) || extractUserFacingAssistantText(body);
-    return res.json({ ok: true, success: true, ...body, responseText });
+    const toolCalls = extractStructuredToolCalls(body?.response || body);
+    const mediaUrls = extractMediaUrls(body);
+    const thinking = extractThinkingText(body?.response || body);
+    const needsInput = extractNeedsInputPrompt(body?.response || body);
+    return res.json({ ok: true, success: true, ...body, responseText, thinking, toolCalls, mediaUrls, needsInput });
   } catch (error) {
     console.error('Error sending chat message:', error.message || error);
     return res.status(500).json({ error: 'Failed to send message' });
@@ -946,6 +1203,7 @@ app.post('/api/sessions/:key/send-stream', isAuthenticated, requireSessionAccess
     let result = null;
 
     if (gatewayWsManager?.isConnected?.()) {
+      await subscribeToGatewaySession(sessionKey);
       try {
         const frame = await gatewayWsManager.send('chat.send', { sessionKey, message: text, deliver: false, idempotencyKey: gatewayWsManager.createRequestId('msg') }, 30);
         payload = frame?.result ?? frame?.payload ?? frame?.data ?? frame;
@@ -960,7 +1218,10 @@ app.post('/api/sessions/:key/send-stream', isAuthenticated, requireSessionAccess
     }
 
     const responseText = extractUserFacingAssistantText(payload?.response) || extractUserFacingAssistantText(payload);
-    const toolCalls = Array.isArray(payload?.toolCalls) ? payload.toolCalls : [];
+    const toolCalls = extractStructuredToolCalls(payload);
+    const mediaUrls = extractMediaUrls(payload);
+    const thinking = extractThinkingText(payload?.response || payload);
+    const needsInput = extractNeedsInputPrompt(payload);
     const model = payload?.response?.model || payload?.model || null;
 
     res.setHeader('Content-Type', 'text/event-stream');
@@ -968,7 +1229,7 @@ app.post('/api/sessions/:key/send-stream', isAuthenticated, requireSessionAccess
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     if (typeof res.flushHeaders === 'function') res.flushHeaders();
-    res.write(`data: ${JSON.stringify({ type: 'message', text: responseText, toolCalls, model })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'message', text: responseText, thinking, toolCalls, mediaUrls, needsInput, model })}\n\n`);
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
   } catch (error) {
@@ -1494,6 +1755,9 @@ const initGatewayWsManager = async () => {
     });
     
     gatewayWsManager.on('close', (code, reason) => {
+      gatewaySessionsSubscriptionActive = false;
+      gatewaySessionsSubscriptionPromise = null;
+      activeGatewaySessionSubscriptions.clear();
       gatewayWsLastClose = {
         code,
         reason: typeof reason === 'string' ? reason : String(reason || ''),
@@ -1504,11 +1768,18 @@ const initGatewayWsManager = async () => {
     });
     
     gatewayWsManager.on('connected', () => {
+      gatewaySessionsSubscriptionActive = false;
+      gatewaySessionsSubscriptionPromise = null;
+      activeGatewaySessionSubscriptions.clear();
       const pendingRecovered = gatewayWsManager.getPendingForRecoveryCount();
       if (pendingRecovered > 0) {
         console.log(`✅ Gateway WS reconnected with ${pendingRecovered} pending requests recovered`);
       } else {
         console.log('✅ Gateway WS manager connected');
+      }
+      void subscribeToGatewaySessions();
+      for (const sessionKey of gatewaySessionSubscriptions) {
+        void subscribeToGatewaySession(sessionKey);
       }
     });
     
@@ -1649,4 +1920,16 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, server, startServer, getReturnTo, gracefulShutdown };
+module.exports = {
+  app,
+  server,
+  startServer,
+  getReturnTo,
+  gracefulShutdown,
+  extractUserFacingAssistantText,
+  extractNeedsInputPrompt,
+  extractThinkingText,
+  extractStructuredToolCalls,
+  extractMediaUrls,
+  mergeHistoryToolResults,
+};
