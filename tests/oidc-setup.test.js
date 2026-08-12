@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { URLSearchParams } = require('node:url');
 
 // Save and set test env before requiring module
 const _origEnv = {
@@ -19,7 +20,14 @@ process.env.SESSION_SECRET = 'test-session-secret-at-least-32-chars-long';
 process.env.AUTH_MODE = 'local';
 process.env.LOCAL_USERS = 'admin:password123';
 
-const { mapProfileFromClaims, buildOidcCallbackURL, buildOidcAuthOptions, ensureOidcSetup, registerAuthRoutes } = require('../lib/auth-session');
+const {
+  mapProfileFromClaims,
+  buildOidcCallbackURL,
+  buildOidcAuthOptions,
+  withOidcState,
+  ensureOidcSetup,
+  registerAuthRoutes,
+} = require('../lib/auth-session');
 
 // Restore env after all tests
 test.after(() => {
@@ -468,4 +476,31 @@ test('registerAuthRoutes passes prompt directly on /auth/oidc', async () => {
   const oidcCall = capturedOptions.find(c => c.strategy === 'oidc');
   assert.equal(oidcCall.options.prompt, 'login');
   assert.equal(oidcCall.options.authorizationParams, undefined);
+});
+
+test('withOidcState adds a state parameter to authorization requests', () => {
+  class BaseStrategy {
+    authorizationRequestParams() {
+      return new URLSearchParams('scope=openid');
+    }
+  }
+
+  const Strategy = withOidcState(BaseStrategy);
+  const params = new Strategy().authorizationRequestParams({}, {});
+
+  assert.equal(params.get('scope'), 'openid');
+  assert.match(params.get('state'), /^[0-9a-f]{64}$/);
+});
+
+test('withOidcState preserves an existing state parameter', () => {
+  class BaseStrategy {
+    authorizationRequestParams() {
+      return new URLSearchParams('state=provided');
+    }
+  }
+
+  const Strategy = withOidcState(BaseStrategy);
+  const params = new Strategy().authorizationRequestParams({}, {});
+
+  assert.equal(params.get('state'), 'provided');
 });

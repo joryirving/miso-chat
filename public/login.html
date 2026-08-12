@@ -89,6 +89,7 @@
     const errors = {
       invalid: 'Invalid username or password.',
       oidc_failed: 'OIDC login failed. Please try again.',
+      oidc_setup_failed: 'OIDC setup failed. Please try again later.',
       local_disabled: 'Local login is disabled on this deployment.',
       oidc_disabled: 'OIDC login is disabled on this deployment.',
     };
@@ -135,7 +136,7 @@
         oidcBtn.textContent = label;
       }
 
-      if (mode === 'oidc' && oidcEnabled) {
+      if (mode === 'oidc' && oidcEnabled && !error) {
         window.location.replace(oidcBtn.href);
       }
     }
