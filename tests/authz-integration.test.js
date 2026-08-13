@@ -12,6 +12,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const path = require('node:path');
 
 // ===== Helpers =====
 
@@ -19,10 +20,15 @@ const http = require('node:http');
  * Start the Express app on a random port, run the callback, then shut down.
  */
 async function withServer(envOverrides, run) {
-  // Reset module cache so environment changes take effect between tests
+  // Reset module cache so environment changes take effect between tests.
+  // The path filter must match the workspace directory layout — the
+  // original '/miso-chat/' literal assumed a checkout under a directory
+  // named `miso-chat`, but the repo is checked out under
+  // `wl-misospace-miso-chat-780-code-780` in this environment.
   const keys = Object.keys(require.cache);
+  const workspaceRoot = path.resolve(__dirname, '..');
   for (const k of keys) {
-    if (k.includes('/miso-chat/')) delete require.cache[k];
+    if (k.startsWith(workspaceRoot)) delete require.cache[k];
   }
 
   for (const [k, v] of Object.entries(envOverrides)) {
