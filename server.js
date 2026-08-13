@@ -1326,8 +1326,15 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
 
   // Overall timeout
   const overallStart = Date.now();
+  // The overall budget is wired through an AbortController rather than
+  // throwing from the timer callback, so a slow upstream can no longer
+  // take down the process via an uncaughtException. The per-hop and
+  // body-read signals are composed with this one so that when the
+  // overall budget elapses any in-flight fetch and body-read is
+  // aborted, the loop unwinds, and we throw a phased timeout error.
+  const overallController = new AbortController();
   const overallTimeoutHandle = setTimeout(() => {
-    throw new Error('overall');
+    overallController.abort();
   }, LINK_PREVIEW_TIMEOUT_MS);
 
   // Structured timing metrics (accumulate across hops)
@@ -1340,6 +1347,26 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
     retries: [],
   };
 
+  // Helper to surface an overall-budget timeout as a phased 504 error.
+  // Defined after `metrics` so the closure captures it after it is
+  // initialised (the timer can only fire after the function body has
+  // set it up).
+  const throwOverallTimeout = (cause) => {
+    const elapsed = Date.now() - overallStart;
+    metrics.overall = elapsed;
+    const err = new Error(`Preview fetch timed out during overall phase after ${elapsed}ms`);
+    err.phase = 'overall';
+    err.ms = elapsed;
+    err.metrics = { ...metrics };
+    err.name = 'AbortError';
+    if (cause) err.cause = cause;
+    throw err;
+  };
+
+  // Try/finally guarantees the overall timer is cleared even on
+  // unanticipated error paths; combined with the abort-based timer
+  // above, this is what prevents a slow upstream from crashing the
+  // process via an uncaughtException in a timer callback.
   try {
     while (redirectCount < MAX_REDIRECTS) {
       const parsedUrl = new URL(currentUrl);
@@ -1353,15 +1380,26 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
 
       // Per-phase timeouts for this hop
       const hopController = new AbortController();
+      // Compose: abort the hop's fetch when either the per-hop timer or
+      // the overall budget fires. This is what wires the overall timer
+      // through to the in-flight fetch — it can no longer throw from a
+      // timer callback.
+      const hopSignal = AbortSignal.any([hopController.signal, overallController.signal]);
 
       // DNS timeout: use AbortSignal.timeout to abort the lookup on slow DNS
       const dnsStart = Date.now();
 
       try {
         await dns.promises.lookup(host, {
-          signal: AbortSignal.timeout(LINK_PREVIEW_DNS_TIMEOUT_MS)
+          signal: AbortSignal.any([
+            AbortSignal.timeout(LINK_PREVIEW_DNS_TIMEOUT_MS),
+            overallController.signal,
+          ]),
         });
-      } catch {
+      } catch (error) {
+        if (overallController.signal.aborted) {
+          throwOverallTimeout(error);
+        }
         const dnsElapsed = Date.now() - dnsStart;
         clearTimeout(overallTimeoutHandle);
         metrics.dns += dnsElapsed;
@@ -1387,7 +1425,10 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
           Promise.resolve(), // no-op — we rely on the signal below
           headersTimeoutPromise,
         ]);
-      } catch {
+      } catch (error) {
+        if (overallController.signal.aborted) {
+          throwOverallTimeout(error);
+        }
         const connectElapsed = Date.now() - connectStart;
         clearTimeout(overallTimeoutHandle);
         metrics.connectHeaders += connectElapsed;
@@ -1409,7 +1450,7 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
           return fetch(currentUrl, {
             method: 'GET',
             redirect: 'manual',
-            signal: hopController.signal,
+            signal: hopSignal,
             headers: {
               Accept: 'text/html,application/xhtml+xml',
               'User-Agent': LINK_PREVIEW_USER_AGENT,
@@ -1486,6 +1527,11 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
       let htmlChunks = [];
       let htmlLength = 0;
       const bodyReadController = new AbortController();
+      // Compose: the body-read loop aborts when either the per-phase
+      // body-read timer OR the overall budget timer fires. This is
+      // what lets the overall budget interrupt an in-flight body read
+      // without throwing from a timer callback.
+      const bodyReadSignal = AbortSignal.any([bodyReadController.signal, overallController.signal]);
       const bodyReadStart = Date.now();
       const bodyReadTimeoutHandle = setTimeout(() => {
         bodyReadController.abort(new Error('body-read'));
@@ -1493,7 +1539,7 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
 
       try {
         for await (const chunk of htmlStream) {
-          if (bodyReadController.signal.aborted) break;
+          if (bodyReadController.signal.aborted || bodyReadSignal.aborted) break;
           const chunkStr = Buffer.isBuffer(chunk) ? chunk.toString() : String(chunk);
           htmlLength += chunkStr.length;
           if (htmlLength > LINK_PREVIEW_MAX_HTML_CHARS * 1.5) {
@@ -1504,6 +1550,13 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
         }
       } finally {
         clearTimeout(bodyReadTimeoutHandle);
+      }
+
+      // If the overall budget fired while the body was still streaming,
+      // surface it as a phased timeout rather than returning a partial
+      // preview.
+      if (overallController.signal.aborted) {
+        throwOverallTimeout();
       }
 
       metrics.bodyRead += Date.now() - bodyReadStart;
@@ -1520,6 +1573,20 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
     throw new Error('Redirect chain exhausted without a response');
   } catch (error) {
     clearTimeout(overallTimeoutHandle);
+    // If the overall budget fired but the inner catch did not surface a
+    // phased 'overall' error, throw one now. This keeps the overall
+    // timeout from ever throwing from the timer callback.
+    if (overallController.signal.aborted && error?.phase !== 'overall') {
+      const elapsed = Date.now() - overallStart;
+      metrics.overall = elapsed;
+      const err = new Error(`Preview fetch timed out during overall phase after ${elapsed}ms`);
+      err.phase = 'overall';
+      err.ms = elapsed;
+      err.metrics = { ...metrics };
+      err.name = 'AbortError';
+      err.cause = error;
+      throw err;
+    }
     if (!error.metrics) {
       metrics.overall = Date.now() - overallStart;
       error.metrics = metrics;
@@ -1539,6 +1606,8 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
       throw wrapped;
     }
     throw error;
+  } finally {
+    clearTimeout(overallTimeoutHandle);
   }
 }
 
@@ -1932,4 +2001,5 @@ module.exports = {
   extractStructuredToolCalls,
   extractMediaUrls,
   mergeHistoryToolResults,
+  _fetchLinkPreview,
 };
