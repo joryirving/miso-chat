@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const http = require('http');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
+const { buildRateLimitKey } = require('./lib/trusted-proxies');
 const cors = require('cors');
 const https = require('https');
 const crypto = require('crypto');
@@ -295,17 +296,12 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    const cfIp = req.headers['cf-connecting-ip'];
-    if (typeof cfIp === 'string' && cfIp.trim()) {
-      return ipKeyGenerator(cfIp.trim());
-    }
-
-    const forwarded = req.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string' && forwarded.trim()) {
-      return ipKeyGenerator(forwarded.split(',')[0].trim());
-    }
-
-    return ipKeyGenerator(req.ip);
+    // Forwarded headers are only honored when the TCP peer is on the
+    // TRUSTED_PROXY_IPS allowlist (see lib/trusted-proxies). With the
+    // default empty allowlist we fall back to req.socket.remoteAddress so
+    // a client cannot mint new rate-limit buckets by rotating
+    // cf-connecting-ip / x-forwarded-for per request.
+    return ipKeyGenerator(buildRateLimitKey(req));
   },
   skip: (req) => {
     // Never rate-limit realtime/bootstrap reads; this can deadlock the UI.
@@ -329,17 +325,12 @@ const sseLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    const cfIp = req.headers['cf-connecting-ip'];
-    if (typeof cfIp === 'string' && cfIp.trim()) {
-      return ipKeyGenerator(cfIp.trim());
-    }
-
-    const forwarded = req.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string' && forwarded.trim()) {
-      return ipKeyGenerator(forwarded.split(',')[0].trim());
-    }
-
-    return ipKeyGenerator(req.ip);
+    // Forwarded headers are only honored when the TCP peer is on the
+    // TRUSTED_PROXY_IPS allowlist (see lib/trusted-proxies). With the
+    // default empty allowlist we fall back to req.socket.remoteAddress so
+    // a client cannot mint new rate-limit buckets by rotating
+    // cf-connecting-ip / x-forwarded-for per request.
+    return ipKeyGenerator(buildRateLimitKey(req));
   },
   message: { error: 'Too many SSE connections, please try again later.' },
 });
@@ -350,17 +341,12 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    const cfIp = req.headers['cf-connecting-ip'];
-    if (typeof cfIp === 'string' && cfIp.trim()) {
-      return ipKeyGenerator(cfIp.trim());
-    }
-
-    const forwarded = req.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string' && forwarded.trim()) {
-      return ipKeyGenerator(forwarded.split(',')[0].trim());
-    }
-
-    return ipKeyGenerator(req.ip);
+    // Forwarded headers are only honored when the TCP peer is on the
+    // TRUSTED_PROXY_IPS allowlist (see lib/trusted-proxies). With the
+    // default empty allowlist we fall back to req.socket.remoteAddress so
+    // a client cannot mint new rate-limit buckets by rotating
+    // cf-connecting-ip / x-forwarded-for per request.
+    return ipKeyGenerator(buildRateLimitKey(req));
   },
   skip: () => {
     // Skip for auth modes that don't use local auth
