@@ -68,6 +68,7 @@ docker run -d --name miso-chat \
 | `PUSH_VAPID_PUBLIC_KEY` | If push enabled | - | Public VAPID key (reserved for future implementation) |
 | `PUSH_VAPID_PRIVATE_KEY` | If push enabled | - | Private VAPID key (reserved for future implementation) |
 | `PUSH_VAPID_SUBJECT` | If push enabled | - | Contact URI for VAPID claims (reserved for future implementation) |
+| `TRUSTED_PROXY_IPS` | No | empty | Comma-separated allowlist of reverse-proxy addresses whose forwarded headers (`cf-connecting-ip`, `x-forwarded-for`) may be used to derive rate-limit keys. Accepts plain IPv4/IPv6, CIDR blocks, and the `cloudflare` keyword. **Defaults to empty** — with no entry set, all rate-limit keys fall back to the direct TCP socket address and forwarded headers are ignored. See [Trusted Proxies / Rate Limiting](#trusted-proxies--rate-limiting) below. |
 
 ## Gateway Scope Model
 
@@ -95,6 +96,31 @@ No code changes are required — the scope list is built at startup from the env
 
 - Adds baseline HTTP hardening headers (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`).
 - Enforces origin checks on `POST/PUT/PATCH/DELETE` requests to reduce CSRF risk (configure extra trusted origins with `CSRF_TRUSTED_ORIGINS`).
+- Rate limiters (`/api/*`, `/api/events/stream`, `/auth/*`) key only on `cf-connecting-ip` / `x-forwarded-for` when the direct TCP peer matches `TRUSTED_PROXY_IPS`; otherwise the key is the socket address. See [Trusted Proxies / Rate Limiting](#trusted-proxies--rate-limiting).
+
+### Trusted Proxies / Rate Limiting
+
+In earlier releases the rate limiters keyed on `cf-connecting-ip` first and `x-forwarded-for` second with no peer validation. With the app reachable directly on port 3000 (the default `docker-compose` deployment), a client could rotate those headers per request and mint an unlimited supply of rate-limit buckets, bypassing the auth limiter (20/15 min), the API limiter (100/15 min) and the SSE limiter (10/min).
+
+This release introduces `TRUSTED_PROXY_IPS`:
+
+- **Empty (default):** every request is keyed on its TCP socket address. Forwarded headers are ignored. This is the safe default for direct-publish deployments.
+- **Configured:** forwarded headers are honored only when the direct TCP peer matches an entry. `cf-connecting-ip` is honored only when the peer is a known Cloudflare edge range; `x-forwarded-for` (leftmost) is honored for any other trusted proxy.
+
+Entries may be plain IPv4/IPv6 addresses, CIDR blocks, or the special keyword `cloudflare` (expands to the published Cloudflare edge ranges). Entries are normalized (lowercased, IPv4-mapped IPv6 `::ffff:` prefix stripped) before comparison, so `::ffff:1.2.3.4` matches a peer reporting as `1.2.3.4`.
+
+```bash
+# Behind Cloudflare only
+TRUSTED_PROXY_IPS=cloudflare
+
+# Behind an internal reverse proxy on 10.0.0.0/8 plus Cloudflare
+TRUSTED_PROXY_IPS=10.0.0.0/8,cloudflare
+
+# A single known peer
+TRUSTED_PROXY_IPS=192.0.2.10
+```
+
+> ⚠️ Operators deploying behind Envoy, Cloudflare, nginx, or any reverse proxy **must** set `TRUSTED_PROXY_IPS`. With the default-empty allowlist, every request will appear to originate from the proxy's IP and all clients will share a single rate-limit bucket — a silent behavior change from the previous `trust proxy 1` default.
 
 ```yaml
 securityContext:
