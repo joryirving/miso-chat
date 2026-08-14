@@ -5,6 +5,18 @@
 // fetch aborts and the function returns a phased 504 timeout error
 // while the process stays alive.
 
+// Pin the timeout env vars BEFORE requiring server.js so the values
+// are in place when the server module reads them at load time.
+// Without pinning, a CI environment that exports a larger overall
+// budget would let the 7.5s trickle stream below complete and turn
+// this test from a "timeout abort" check into a false positive
+// successful-preview check.
+process.env.LINK_PREVIEW_TIMEOUT_MS = '1000';
+process.env.LINK_PREVIEW_BODY_READ_TIMEOUT_MS = '5000';
+// Disable auth for this test so the route-level assertion can hit
+// the link-preview endpoint without going through the login flow.
+process.env.AUTH_MODE = 'none';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
@@ -18,6 +30,7 @@ const originalIsForbidden = ssrfModule.isForbiddenLinkPreviewHost;
 ssrfModule.isForbiddenLinkPreviewHost = async () => false;
 
 const server = require('../server');
+const { app } = server;
 
 // Default overall budget is 5s. We trickle chunks every 250ms for ~7s
 // so the body-read phase (30s) outlives the overall budget (5s) and
@@ -119,4 +132,101 @@ test('overall timer is abort-based, not a throwing setTimeout', () => {
     !/setTimeout\(\s*\(\)\s*=>\s*\{\s*throw/.test(source),
     'server.js must not contain a setTimeout that throws from its callback (issue #780)',
   );
+});
+
+test('GET /api/link-preview maps an overall-timeout abort to a 504', async () => {
+  // Acceptance criterion 1 also requires the HTTP route to
+  // surface the overall-timeout abort as a 504 response, not just
+  // _fetchLinkPreview. Mount the express app on a random local
+  // port, point it at a slow trickle server, and assert the route
+  // returns 504 with phase 'overall' (and the process survives).
+  const trickle = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.write('<!doctype html><html><head><title>x</title></head><body>');
+    const trickleInterval = setInterval(() => {
+      if (!res.writableEnded) {
+        try {
+          res.write('<p>tick</p>');
+        } catch (_) {
+          clearInterval(trickleInterval);
+        }
+      } else {
+        clearInterval(trickleInterval);
+      }
+    }, 200);
+    // Hold the response open long enough for the overall budget
+    // (1s, pinned at the top of this file) to fire and the route
+    // to respond with 504.
+    setTimeout(() => {
+      clearInterval(trickleInterval);
+      try { res.end('</body></html>'); } catch (_) { /* ignore */ }
+    }, 5000);
+  });
+  await new Promise((resolve) => trickle.listen(0, '127.0.0.1', resolve));
+  const tricklePort = trickle.address().port;
+  const trickleUrl = `http://127.0.0.1:${tricklePort}/slow`;
+
+  const routeApp = http.createServer(app);
+  await new Promise((resolve) => routeApp.listen(0, '127.0.0.1', resolve));
+  const routePort = routeApp.address().port;
+
+  const uncaught = [];
+  const onUncaught = (err) => uncaught.push(err);
+  process.on('uncaughtException', onUncaught);
+
+  try {
+    const { status, body } = await new Promise((resolve, reject) => {
+      const path = `/api/link-preview?url=${encodeURIComponent(trickleUrl)}`;
+      const req = http.request(
+        {
+          hostname: '127.0.0.1',
+          port: routePort,
+          path,
+          method: 'GET',
+          timeout: 10000,
+        },
+        (res) => {
+          const chunks = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => {
+            resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf-8') });
+          });
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+
+    assert.equal(
+      status,
+      504,
+      `expected 504 from /api/link-preview on overall-timeout, got ${status}: ${body}`,
+    );
+    // The route should also label the failure with phase='overall'
+    // so the client can distinguish it from DNS / connect / body
+    // timeouts. The route embeds the phase in the error message
+    // text (e.g. "Preview fetch timed out during overall phase
+    // after 1000ms") rather than as a separate JSON field, so
+    // assert on the human-readable message containing 'overall'.
+    let parsed;
+    try { parsed = JSON.parse(body); } catch (_) { parsed = {}; }
+    const message = parsed && parsed.error ? String(parsed.error) : body;
+    assert.ok(
+      /overall/.test(message),
+      `expected /api/link-preview error message to mention 'overall' phase, got: ${message}`,
+    );
+
+    // Process must still be alive: no uncaughtException should
+    // have fired from a throwing timer callback.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(
+      uncaught.length,
+      0,
+      `uncaughtException fired during route-level test: ${uncaught.map((e) => e.stack || e.message).join('\n')}`,
+    );
+  } finally {
+    process.off('uncaughtException', onUncaught);
+    await new Promise((resolve) => routeApp.close(resolve));
+    await new Promise((resolve) => trickle.close(resolve));
+  }
 });

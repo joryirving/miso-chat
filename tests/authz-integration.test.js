@@ -28,7 +28,11 @@ async function withServer(envOverrides, run) {
   const keys = Object.keys(require.cache);
   const workspaceRoot = path.resolve(__dirname, '..');
   for (const k of keys) {
-    if (k.startsWith(workspaceRoot)) delete require.cache[k];
+    // Append path.sep so sibling paths that merely share the
+    // workspaceRoot prefix (e.g. /tmp/wl-...-code-780-foo) are
+    // not accidentally matched. We only want to invalidate
+    // modules inside the repo root.
+    if (k.startsWith(workspaceRoot + path.sep)) delete require.cache[k];
   }
 
   for (const [k, v] of Object.entries(envOverrides)) {
