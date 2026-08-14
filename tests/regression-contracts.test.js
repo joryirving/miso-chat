@@ -248,3 +248,31 @@ test('GET /api/sessions/:key/history hides camel-case and dashed tool events', a
     GatewayWsManager.prototype.send = originalSend;
   }
 });
+
+test('POST /api/sessions/:key/send rejects messages over MAX_CHAT_MESSAGE_LENGTH with same error shape', async () => {
+  await withServer(async (base) => {
+    const { MAX_CHAT_MESSAGE_LENGTH } = require('../server');
+    const overflow = 'a'.repeat(MAX_CHAT_MESSAGE_LENGTH + 1);
+    const { res, body } = await fetchJson(base, '/api/sessions/default/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: overflow }),
+    });
+    assert.equal(res.status, 400);
+    assert.match(String(body.error || ''), /exceeds max length/i);
+  });
+});
+
+test('POST /api/sessions/:key/send-stream rejects messages over MAX_CHAT_MESSAGE_LENGTH with same error shape', async () => {
+  await withServer(async (base) => {
+    const { MAX_CHAT_MESSAGE_LENGTH } = require('../server');
+    const overflow = 'a'.repeat(MAX_CHAT_MESSAGE_LENGTH + 1);
+    const { res, body } = await fetchJson(base, '/api/sessions/default/send-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: overflow }),
+    });
+    assert.equal(res.status, 400);
+    assert.match(String(body.error || ''), /exceeds max length/i);
+  });
+});

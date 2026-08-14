@@ -1198,6 +1198,9 @@ app.post('/api/sessions/:key/send-stream', isAuthenticated, requireSessionAccess
 
     if (!sessionKey) return res.status(400).json({ error: 'session key is required' });
     if (!text) return res.status(400).json({ error: 'text is required' });
+    if (text.length > MAX_CHAT_MESSAGE_LENGTH) {
+      return res.status(400).json({ error: `message exceeds max length (${MAX_CHAT_MESSAGE_LENGTH})` });
+    }
 
     let payload = null;
     let result = null;
@@ -1995,6 +1998,7 @@ module.exports = {
   startServer,
   getReturnTo,
   gracefulShutdown,
+  MAX_CHAT_MESSAGE_LENGTH,
   extractUserFacingAssistantText,
   extractNeedsInputPrompt,
   extractThinkingText,
