@@ -389,8 +389,12 @@ app.use((req, res, next) => {
 // Serve static assets, but do NOT auto-serve /index.html at root (keeps auth gate on /)
 app.use(express.static('public', { index: false }));
 
-// Serve lib/ JS modules as browser-accessible scripts (e.g. /lib/render-utils.js)
-app.use('/lib', express.static(path.join(__dirname, 'lib'), { index: false, extensions: ['js'] }));
+// /lib is intentionally NOT mounted onto the server-side lib/ directory. The
+// browser-served modules (api-client, capacitor-detect, reaction-events-browser,
+// render-utils, secure-storage, session-key-hydration) live under public/lib/
+// and are served by the `express.static('public')` handler above. The server-only
+// modules in lib/ (auth-session, db, ssrf-validation, etc.) must never be
+// reachable unauthenticated. See #782.
 // Session configuration (delegated to lib/auth-session.js)
 const sessionConfig = buildSessionConfig({ authMode });
 
