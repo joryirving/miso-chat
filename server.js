@@ -586,6 +586,16 @@ const firstCorsOrigin = corsOrigin.split(',')[0].trim();
 const gatewayWsOrigin = configuredGatewayWsOrigin || firstCorsOrigin || 'http://localhost:3000';
 const GATEWAY_URL = process.env.GATEWAY_URL || process.env.OPENCLAW_API_URL || 'http://openclaw.llm.svc.cluster.local:18789';
 const GATEWAY_TOKEN = process.env.GATEWAY_TOKEN || process.env.GATEWAY_AUTH_TOKEN || '';
+// Timeout for the gatewayInvoke() HTTP fallback. Must be short enough that a stalled
+// gateway doesn't hold client requests open indefinitely. Default 12s sits between the
+// WS path's 10s (sessions.list) and 30s (chat.send) timeouts.
+const GATEWAY_INVOKE_TIMEOUT_MS = (() => {
+  const raw = process.env.GATEWAY_INVOKE_TIMEOUT_MS;
+  if (raw == null || raw === '') return 12000;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 12000;
+  return Math.floor(parsed);
+})();
 const gatewayWsManager = new GatewayWsManager({
   wsUrl: process.env.GATEWAY_WS_URL || 'ws://openclaw.llm.svc.cluster.local:18789',
   clientId: GATEWAY_WS_CLIENT_ID,
@@ -1675,10 +1685,13 @@ app.post('/api/openclaw-stop', isAuthenticated, requireSessionAccess(authMode), 
  * @returns {string|null} - Formatted agent name or null if cannot infer
  */
 
-function gatewayInvoke(tool, args = {}) {
+function gatewayInvoke(tool, args = {}, opts = {}) {
   return new Promise((resolve, reject) => {
     const postData = JSON.stringify({ tool, args });
-    const url = new URL('/tools/invoke', GATEWAY_URL);
+    // Allow opts.url override (used by tests; production code relies on the
+    // module-level GATEWAY_URL constant).
+    const baseUrl = (opts && typeof opts.url === 'string' && opts.url) ? opts.url : GATEWAY_URL;
+    const url = new URL('/tools/invoke', baseUrl);
     const transport = url.protocol === 'https:' ? https : http;
 
     const headers = {
@@ -1689,6 +1702,23 @@ function gatewayInvoke(tool, args = {}) {
     if (GATEWAY_TOKEN) {
       headers.Authorization = `Bearer ${GATEWAY_TOKEN}`;
     }
+
+    // Allow callers to override (e.g. tests); fall back to the configured default.
+    const timeoutMs = (opts && Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0)
+      ? Math.floor(opts.timeoutMs)
+      : GATEWAY_INVOKE_TIMEOUT_MS;
+
+    // `settled` guards against double-settle (e.g. error firing after a response
+    // finishes, or both the JS timer and the socket 'timeout' event firing).
+    let settled = false;
+    let timer = null;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      if (timer) { clearTimeout(timer); timer = null; }
+      try { req.destroy(); } catch (_e) { /* noop */ }
+      fn(value);
+    };
 
     const req = transport.request({
       hostname: url.hostname,
@@ -1702,19 +1732,41 @@ function gatewayInvoke(tool, args = {}) {
         data += chunk;
       });
       res.on('end', () => {
+        if (settled) return;
         try {
           const json = JSON.parse(data);
-          if (json.ok) return resolve(json.result);
-          return reject(new Error(json.error?.message || 'Gateway invoke failed'));
+          if (json.ok) return finish(resolve, json.result);
+          return finish(reject, new Error(json.error?.message || 'Gateway invoke failed'));
         } catch {
-          return reject(new Error(`Invalid gateway response: ${String(data).slice(0, 200)}`));
+          return finish(reject, new Error(`Invalid gateway response: ${String(data).slice(0, 200)}`));
         }
       });
     });
 
-    req.on('error', reject);
-    req.write(postData);
-    req.end();
+    // JS-level deadline: makes rejection deterministic even if the gateway
+    // accepts the TCP connection but never sends a response (no socket-level
+    // 'timeout' fires when there's no traffic at all on some platforms).
+    timer = setTimeout(() => {
+      finish(reject, new Error(`gateway ${tool} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    if (timer && typeof timer.unref === 'function') timer.unref();
+
+    // Socket-level idle timeout: if the underlying socket stops receiving bytes
+    // for `timeoutMs`, Node destroys the request and emits 'timeout'. This
+    // catches a stalled mid-response body that the JS timer above would also
+    // catch, but it forces the socket to release sooner.
+    try { req.setTimeout(timeoutMs); } catch (_e) { /* some transports may not support it */ }
+    req.on('timeout', () => {
+      finish(reject, new Error(`gateway ${tool} timed out after ${timeoutMs}ms`));
+    });
+
+    req.on('error', (err) => finish(reject, err));
+    try {
+      req.write(postData);
+      req.end();
+    } catch (err) {
+      finish(reject, err);
+    }
   });
 }
 
