@@ -1738,7 +1738,7 @@ function humanizeAgentToken(value) {
     .replace(/^g-agent-/, '')
     .replace(/^agent[-:]/, '')
     .replace(/[-_]/g, ' ')
-    .replace(/\w/g, (c) => c.toUpperCase());
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function inferAgentNameFromKey(sessionKey) {
@@ -2002,4 +2002,6 @@ module.exports = {
   extractMediaUrls,
   mergeHistoryToolResults,
   _fetchLinkPreview,
+  humanizeAgentToken,
+  inferAgentNameFromKey,
 };
