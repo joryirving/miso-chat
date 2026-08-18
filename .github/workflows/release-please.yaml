@@ -1,0 +1,36 @@
+---
+# Maintains a standing "release: X.Y.Z" PR listing everything unreleased.
+# Merging it is the release decision — nothing here merges on your behalf.
+#
+# The app token matters: a release published with the default GITHUB_TOKEN does
+# not trigger other workflows, so android-release.yml, release-notes.yml and
+# release.yaml (all on: release: published) would never fire. A GitHub App
+# token does trigger them, which keeps those three unchanged.
+name: Release Please
+
+on:
+  push:
+    branches: ["main"]
+
+permissions: {}
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Generate bot token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.BOT_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
