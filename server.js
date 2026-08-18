@@ -1837,12 +1837,30 @@ app.get('/api/events', isAuthenticated, sseLimiter, (req, res) => {
   });
 });
 
+// Bound on the socket's writable queue per SSE client. A client that stops
+// reading (sleeping laptop, backgrounded tab, flaky network) would otherwise
+// grow Node's write buffer without limit for the lifetime of the connection.
+// When the queue exceeds this, the client is dropped so it can reconnect.
+const SSE_MAX_WRITABLE_BYTES = 1024 * 1024;
+
+function dropSseClient(client) {
+  sseClients.delete(client);
+  try {
+    client.end();
+  } catch {}
+}
+
 function broadcastToSseClients(event, data) {
   const payload = JSON.stringify({ event, data, timestamp: Date.now() });
   for (const client of sseClients) {
     try {
-      client.write(`data: ${payload}\n\n`);
-    } catch {}
+      const ok = client.write(`data: ${payload}\n\n`);
+      if (!ok || (client.writableLength || 0) > SSE_MAX_WRITABLE_BYTES) {
+        dropSseClient(client);
+      }
+    } catch {
+      dropSseClient(client);
+    }
   }
 }
 
@@ -2050,4 +2068,8 @@ module.exports = {
   _fetchLinkPreview,
   humanizeAgentToken,
   inferAgentNameFromKey,
+  sseClients,
+  broadcastToSseClients,
+  dropSseClient,
+  SSE_MAX_WRITABLE_BYTES,
 };
