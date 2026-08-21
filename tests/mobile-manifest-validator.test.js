@@ -53,7 +53,7 @@ test('validateSchema: rejects empty channels object', () => {
   assert.equal(result.valid, false);
 });
 
-test('validateSchema: accepts manifest with valid channels', () => {
+test('validateSchema: accepts manifest with valid channels (digest required, issue #814)', () => {
   const result = validateSchema({
     version: '0.4.13',
     tag: 'v0.4.13',
@@ -61,6 +61,8 @@ test('validateSchema: accepts manifest with valid channels', () => {
       stable: {
         version: '0.4.13',
         bundleUrl: 'https://github.com/misospace/miso-chat/releases/download/v0.4.13/bundle.zip',
+        digest: '69f5c19b96bff62e61f0d6feed0f1dd5ee45e7df6f6e1b81bd95b6b1f48a4cdb',
+        digestAlgorithm: 'sha-256',
       },
     },
   });
@@ -79,7 +81,7 @@ test('validateSchema: rejects channel missing required fields', () => {
   assert.ok(result.errors.some(e => e.includes('bundleUrl')));
 });
 
-test('validateSchema: accepts manifest with multiple channels', () => {
+test('validateSchema: accepts manifest with multiple channels that have digests', () => {
   const result = validateSchema({
     version: '0.4.13',
     tag: 'v0.4.13',
@@ -87,10 +89,14 @@ test('validateSchema: accepts manifest with multiple channels', () => {
       stable: {
         version: '0.4.13',
         bundleUrl: 'https://github.com/misospace/miso-chat/releases/download/v0.4.13/bundle.zip',
+        digest: '69f5c19b96bff62e61f0d6feed0f1dd5ee45e7df6f6e1b81bd95b6b1f48a4cdb',
+        digestAlgorithm: 'sha-256',
       },
       beta: {
         version: '0.4.13',
         bundleUrl: 'https://github.com/misospace/miso-chat/releases/download/v0.4.13/bundle-beta.zip',
+        digest: '59f5c19b96bff62e61f0d6feed0f1dd5ee45e7df6f6e1b81bd95b6b1f48a4cdb',
+        digestAlgorithm: 'sha-256',
       },
     },
   });
@@ -234,10 +240,10 @@ test('verifyDigest: rejects mismatched digest', () => {
   assert.equal(result.valid, false);
 });
 
-test('verifyDigest: skips validation when no digest algorithm specified', () => {
+test('verifyDigest: refuses to silently pass when no digest algorithm specified (issue #814)', () => {
   const payload = Buffer.from('test');
   const result = verifyDigest({}, payload, 'any-digest');
-  assert.equal(result.valid, true);
+  assert.equal(result.valid, false);
 });
 
 test('verifyDigest: rejects when expected digest not provided', () => {
@@ -308,7 +314,7 @@ test('validateManifest: rejects manifest with tag mismatch', () => {
   assert.equal(result.valid, false);
 });
 
-test('validateManifest: no errors when optional fields omitted', () => {
+test('validateManifest: rejects channel that omits digest + digestAlgorithm (issue #814)', () => {
   const manifest = {
     version: '0.4.13',
     tag: 'v0.4.13',
@@ -324,7 +330,8 @@ test('validateManifest: no errors when optional fields omitted', () => {
     repoOwner: 'misospace',
     repoName: 'miso-chat',
   });
-  assert.equal(result.valid, true);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((e) => /digest/.test(e)));
 });
 
 // ---- Version Utility Tests ----

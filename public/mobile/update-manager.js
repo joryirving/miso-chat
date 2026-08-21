@@ -140,6 +140,20 @@
           return { available: false, reason: 'manifest-missing-bundleUrl' };
         }
 
+        // Refuse to even offer an update if the channel is missing a
+        // supported digestAlgorithm + digest. A silent install of unverified
+        // code must not be offered to the device.
+        const supportedDigestAlgos = ['sha-256', 'sha256', 'sha384', 'sha512'];
+        const channelAlgo = stable.digestAlgorithm;
+        const channelDigest = stable.digest;
+        if (!channelAlgo || !supportedDigestAlgos.includes(channelAlgo) || !channelDigest) {
+          this.log(
+            'Refusing update: channel "stable" lacks a supported digestAlgorithm + digest '
+            + `(digestAlgorithm=${JSON.stringify(channelAlgo)}, digestPresent=${Boolean(channelDigest)})`
+          );
+          return { available: false, reason: 'manifest-missing-digest' };
+        }
+
         if (compareVersions(latestVersion, currentVersion) <= 0) {
           return { available: false, reason: 'already-latest', currentVersion, latestVersion };
         }
@@ -147,7 +161,9 @@
         this.availableUpdate = {
           version: normalizeVersion(latestVersion),
           bundleUrl,
-          releaseNotes: release.body || manifest.releaseNotes || ''
+          releaseNotes: release.body || manifest.releaseNotes || '',
+          digest: channelDigest,
+          digestAlgorithm: channelAlgo,
         };
 
         if (this.config.showNotification) {
@@ -161,12 +177,67 @@
       }
     },
 
+    /**
+     * Compute the SHA digest of a bundle fetched from `url`.
+     * Returns the hex digest or throws.
+     */
+    _computeBundleDigest: async function(url, algorithm) {
+      if (!window.crypto || !window.crypto.subtle) {
+        throw new Error('SubtleCrypto unavailable; cannot verify bundle integrity');
+      }
+      const normalized = (algorithm === 'sha256') ? 'SHA-256' : algorithm.toUpperCase();
+      const response = await fetch(url, { headers: { 'Accept': 'application/octet-stream,*/*' } });
+      if (!response.ok) {
+        throw new Error(`bundle fetch failed: ${response.status}`);
+      }
+      const buf = await response.arrayBuffer();
+      const digestBuf = await window.crypto.subtle.digest(normalized, buf);
+      const bytes = new Uint8Array(digestBuf);
+      let hex = '';
+      for (let i = 0; i < bytes.length; i++) {
+        hex += bytes[i].toString(16).padStart(2, '0');
+      }
+      return hex;
+    },
+
     update: async function() {
       const updater = getUpdater();
       if (!updater) return { success: false, reason: 'updater-unavailable' };
       if (!this.availableUpdate) return { success: false, reason: 'no-update-available' };
 
+      // Refuse install if the manifest we checked didn't record a digest.
+      // checkForUpdate() should have already returned unavailable; this is a
+      // defense-in-depth check in case update() is called directly.
+      const algo = this.availableUpdate.digestAlgorithm;
+      const expected = this.availableUpdate.digest;
+      if (!algo || !expected) {
+        console.warn(
+          '[UpdateManager] Refusing to install bundle: no recorded digest '
+          + 'on the selected channel. Skipping update to prevent installation '
+          + 'of unverified code.'
+        );
+        return { success: false, reason: 'missing-digest' };
+      }
+
       try {
+        // Verify the bundle's bytes against the digest recorded in the
+        // manifest BEFORE handing it to updater.set(). This blocks a
+        // compromised build machine, a breached GitHub release, or a MITM
+        // substituting the download from installing arbitrary JS.
+        const computedDigest = await this._computeBundleDigest(
+          this.availableUpdate.bundleUrl,
+          algo
+        );
+        const normalizedExpected = String(expected).replace(/^[a-z0-9]+:/i, '').toLowerCase();
+        if (computedDigest.toLowerCase() !== normalizedExpected) {
+          console.error(
+            '[UpdateManager] Refusing to install bundle: digest mismatch. '
+            + `expected ${normalizedExpected}, got ${computedDigest.toLowerCase()}. `
+            + 'Skipping update.'
+          );
+          return { success: false, reason: 'digest-mismatch' };
+        }
+
         const downloaded = await updater.download({
           version: this.availableUpdate.version,
           url: this.availableUpdate.bundleUrl,
