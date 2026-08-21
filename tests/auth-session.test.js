@@ -298,3 +298,57 @@ describe('buildSessionConfig', () => {
     clearEnv();
   });
 });
+
+describe('LOCAL_USERS production guard', () => {
+  const saved = {
+    NODE_ENV: process.env.NODE_ENV,
+    LOCAL_USERS: process.env.LOCAL_USERS,
+    SESSION_SECRET: process.env.SESSION_SECRET,
+  };
+
+  function restoreEnv() {
+    Object.keys(saved).forEach((k) => {
+      if (saved[k] === undefined) {
+        delete process.env[k];
+      } else {
+        process.env[k] = saved[k];
+      }
+    });
+  }
+
+  it('throws in production when LOCAL_USERS uses the default password123', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.LOCAL_USERS = 'admin:password123';
+    process.env.SESSION_SECRET = 'a'.repeat(40);
+
+    assert.throws(() => {
+      mod.setupPassport({ localAuthEnabled: true });
+    }, /LOCAL_USERS.*known-insecure/);
+
+    restoreEnv();
+  });
+
+  it('throws in production when a LOCAL_USERS password is too short', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.LOCAL_USERS = 'admin:short';
+    process.env.SESSION_SECRET = 'a'.repeat(40);
+
+    assert.throws(() => {
+      mod.setupPassport({ localAuthEnabled: true });
+    }, /LOCAL_USERS.*too short/);
+
+    restoreEnv();
+  });
+
+  it('allows a strong LOCAL_USERS password in production', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.LOCAL_USERS = 'admin:' + 'Str0ng!Passw0rd-XYZ';
+    process.env.SESSION_SECRET = 'a'.repeat(40);
+
+    assert.doesNotThrow(() => {
+      mod.setupPassport({ localAuthEnabled: true });
+    });
+
+    restoreEnv();
+  });
+});
