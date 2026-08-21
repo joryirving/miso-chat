@@ -606,10 +606,34 @@ gatewayWsManager.on('error', (err) => {
   console.error('⚠️ Gateway WS error:', err?.message || err);
 });
 
-const gatewaySessionSubscriptions = new Set();
+const {
+  gatewaySessionSubscriptions,
+  noteGatewaySessionSubscription,
+  pruneIdleGatewaySessionSubscriptions: _pruneIdleGatewaySessionSubscriptions,
+  GATEWAY_SESSION_SUBSCRIPTION_IDLE_MS,
+} = require('./lib/gateway-session-subscriptions');
 const activeGatewaySessionSubscriptions = new Set();
 let gatewaySessionsSubscriptionActive = false;
 let gatewaySessionsSubscriptionPromise = null;
+
+// Prune idle gateway session subscriptions (see #811). The Set and its
+// last-seen timestamps are owned by lib/gateway-session-subscriptions.js; this
+// wrapper additionally drops any pruned key from activeGatewaySessionSubscriptions
+// so the reconnect handler doesn't re-subscribe stale sessions.
+function pruneIdleGatewaySessionSubscriptions(now = Date.now()) {
+  const pruned = _pruneIdleGatewaySessionSubscriptions(now);
+  if (pruned > 0) {
+    for (const key of activeGatewaySessionSubscriptions) {
+      if (!gatewaySessionSubscriptions.has(key)) activeGatewaySessionSubscriptions.delete(key);
+    }
+  }
+  return pruned;
+}
+
+const GATEWAY_SESSION_SUBSCRIPTION_PRUNE_INTERVAL_MS = 60 * 1000;
+setInterval(() => {
+  pruneIdleGatewaySessionSubscriptions();
+}, GATEWAY_SESSION_SUBSCRIPTION_PRUNE_INTERVAL_MS).unref();
 
 async function subscribeToGatewaySessions() {
   if (!gatewayWsManager?.isConnected?.() || gatewaySessionsSubscriptionActive) return;
@@ -632,7 +656,7 @@ async function subscribeToGatewaySessions() {
 async function subscribeToGatewaySession(sessionKey) {
   const key = String(sessionKey || '').trim();
   if (!key || !gatewayWsManager?.isConnected?.()) return;
-  gatewaySessionSubscriptions.add(key);
+  noteGatewaySessionSubscription(key);
   await subscribeToGatewaySessions();
   if (activeGatewaySessionSubscriptions.has(key)) return;
 
@@ -2072,4 +2096,8 @@ module.exports = {
   broadcastToSseClients,
   dropSseClient,
   SSE_MAX_WRITABLE_BYTES,
+  gatewaySessionSubscriptions,
+  noteGatewaySessionSubscription,
+  pruneIdleGatewaySessionSubscriptions,
+  GATEWAY_SESSION_SUBSCRIPTION_IDLE_MS,
 };
