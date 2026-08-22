@@ -124,7 +124,8 @@ function isHttpsRequest(req) {
  *
  * If the manifest is missing or malformed we log a warning and fall back to
  * `'unsafe-inline'`. In production (`NODE_ENV=production`) we keep that
- * fallback, but startup emits a one-line warning so the failure is loud.
+ * fallback, but startup emits the notice at error level so the degraded CSP
+ * cannot be silently shipped.
  */
 
 const CSP_HASH_MANIFEST_PATH = path.join(__dirname, 'public', 'csp-hashes.json');
@@ -162,7 +163,7 @@ if (!inlineScriptHashes || inlineScriptHashes.size === 0) {
     "'unsafe-inline' for script-src. Run `node scripts/build-csp-hashes.js` " +
     'and commit the result.';
   if (process.env.NODE_ENV === 'production') {
-    console.warn(msg);
+    console.error(msg);
   } else {
     console.warn(msg);
   }

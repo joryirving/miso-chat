@@ -244,6 +244,87 @@ test('csrfOriginCheck blocks state-changing requests from untrusted origins', ()
 });
 
 // ---------------------------------------------------------------------------
+// CSP manifest fallback log level (audit #812): the degraded `unsafe-inline`
+// CSP must be loud in production (error) and a warn in dev.
+// ---------------------------------------------------------------------------
+
+function withMissingManifest(nodeEnv, fn) {
+  const fs = require('fs');
+  const path = require('path');
+  const manifestPath = path.resolve(__dirname, '../public/csp-hashes.json');
+  const backupPath = manifestPath + '.test-backup';
+
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  const captured = { error: null, warn: null };
+  console.error = (msg) => { captured.error = msg; };
+  console.warn = (msg) => { captured.warn = msg; };
+
+  try {
+    fs.renameSync(manifestPath, backupPath);
+    process.env.NODE_ENV = nodeEnv;
+    delete require.cache[require.resolve('../security')];
+    const [securityHeaders] = require('../security');
+
+    const req = {};
+    const res = createResponseMock();
+    securityHeaders(req, res, () => {});
+
+    fn(captured, res);
+  } finally {
+    console.error = originalError;
+    console.warn = originalWarn;
+    fs.renameSync(backupPath, manifestPath);
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    delete require.cache[require.resolve('../security')];
+  }
+}
+
+test('CSP manifest fallback escalates to console.error in production', () => {
+  withMissingManifest('production', (captured, res) => {
+    assert.ok(
+      captured.error != null,
+      'console.error should be called in production',
+    );
+    assert.match(captured.error, /csp-hashes\.json missing or empty/);
+    assert.equal(
+      captured.warn,
+      null,
+      'dev-level console.warn must not be used in production',
+    );
+    // The degraded CSP is still served (fallback, not startup failure)
+    assert.match(
+      res.headers['Content-Security-Policy'],
+      /script-src[^;]*'unsafe-inline'/,
+    );
+  });
+});
+
+test('CSP manifest fallback keeps console.warn in dev', () => {
+  withMissingManifest('development', (captured, res) => {
+    assert.ok(
+      captured.warn != null,
+      'console.warn should be called in dev',
+    );
+    assert.match(captured.warn, /csp-hashes\.json missing or empty/);
+    assert.equal(
+      captured.error,
+      null,
+      'console.error must not be used in dev',
+    );
+    assert.match(
+      res.headers['Content-Security-Policy'],
+      /script-src[^;]*'unsafe-inline'/,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // LOCAL_USERS default credential removal (audit #693)
 // ---------------------------------------------------------------------------
 
