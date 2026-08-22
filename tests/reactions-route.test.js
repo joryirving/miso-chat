@@ -139,3 +139,44 @@ test('POST toggle normalizes shortcode emoji so :thumbsup: and 👍 are one reac
     assert.deepEqual(final.body.reactions, []);
   });
 });
+
+test('POST toggle rejects oversized emoji and junk sessionKey with 400 and stores nothing', async () => {
+  const store = createFakeReactions();
+  await withApp(store, async (base) => {
+    const togglePath = '/api/messages/msg-1/reactions';
+    const listPath = '/api/messages/msg-1/reactions?sessionKey=sk-1';
+
+    // Oversized emoji (longer than the 32-char bound) is rejected.
+    const bigEmoji = await postJson(base, togglePath, {
+      emoji: '👍'.repeat(40),
+      sessionKey: 'sk-1',
+    });
+    assert.equal(bigEmoji.statusCode, 400);
+    assert.match(bigEmoji.body.error, /Emoji/);
+
+    // Junk oversized sessionKey is rejected.
+    const junkSession = await postJson(base, togglePath, {
+      emoji: '👍',
+      sessionKey: 'x'.repeat(201),
+    });
+    assert.equal(junkSession.statusCode, 400);
+    assert.match(junkSession.body.error, /Session key/);
+
+    // Missing sessionKey is still rejected.
+    const noSession = await postJson(base, togglePath, { emoji: '👍' });
+    assert.equal(noSession.statusCode, 400);
+
+    // Oversized messageId path param is rejected.
+    const bigId = await postJson(base, `/api/messages/${'m'.repeat(201)}/reactions`, {
+      emoji: '👍',
+      sessionKey: 'sk-1',
+    });
+    assert.equal(bigId.statusCode, 400);
+    assert.match(bigId.body.error, /Message ID/);
+
+    // Nothing was stored by any of the rejected requests.
+    const list = await getJson(base, listPath);
+    assert.equal(list.statusCode, 200);
+    assert.deepEqual(list.body.reactions, []);
+  });
+});
