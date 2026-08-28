@@ -25,6 +25,14 @@ if (!process.env.DB_PATH) {
   const dbPath = path.join(dir, 'miso-chat.db');
   process.env.DB_DIR = dir;
   process.env.DB_PATH = dbPath;
+  process.env.MISO_CHAT_TEST_DB_ISOLATED = '1';
+} else if (process.env.NODE_TEST_CONTEXT && process.env.MISO_CHAT_TEST_DB_ISOLATED === '1') {
+  // The test runner inherits DB_PATH into every isolated worker. Replace the
+  // bootstrap-generated path so concurrent workers do not share SQLite files.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miso-chat-test-'));
+  const dbPath = path.join(dir, 'miso-chat.db');
+  process.env.DB_DIR = dir;
+  process.env.DB_PATH = dbPath;
 }
 
 // Belt-and-suspenders: every test file imports a server that needs a session
