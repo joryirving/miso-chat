@@ -120,3 +120,96 @@ test('overall timer is abort-based, not a throwing setTimeout', () => {
     'server.js must not contain a setTimeout that throws from its callback (issue #780)',
   );
 });
+
+// Regression test for #766: the per-hop connect+headers timeout used a
+// `new Promise(() => { setTimeout(...) })` executor that never resolved and
+// whose timer was never cleared, so every successful hop left a dangling
+// timer that kept the event loop alive for up to
+// CONNECT_TIMEOUT + HEADERS_TIMEOUT (15s default). The fix tracks the
+// timer handle and clears it once the hop completes (success or abort).
+//
+// SSRF validation blocks loopback, so a real successful hop cannot be driven
+// through _fetchLinkPreview in-process; we assert the timer-lifecycle
+// contract on the source instead. This is the exact invariant that prevents
+// the dangling 15s timer.
+test('hop connect+headers timer is tracked and cleared (no dangling timer)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf-8');
+
+  // The dead Promise.race no-op must be gone.
+  assert.ok(
+    !/Promise\.race\(\[\s*Promise\.resolve\(\)/.test(source),
+    'server.js must not contain the dead Promise.race([Promise.resolve(), ...]) no-op (issue #766)',
+  );
+
+  // The hop timer must be a tracked handle (not a never-resolving Promise
+  // executor) and must be cleared.
+  assert.ok(
+    /const\s+headersTimeoutHandle\s*=\s*setTimeout\(/.test(source),
+    'server.js must track the hop connect+headers timer in a handle (issue #766)',
+  );
+  assert.ok(
+    /clearTimeout\(\s*headersTimeoutHandle\s*\)/.test(source),
+    'server.js must clearTimeout the hop connect+headers timer (issue #766)',
+  );
+
+  // The clear must live in a finally so it runs on both success and abort.
+  const clearIdx = source.indexOf('clearTimeout(headersTimeoutHandle)');
+  assert.ok(clearIdx !== -1, 'clearTimeout(headersTimeoutHandle) must be present');
+  const beforeClear = source.slice(Math.max(0, clearIdx - 400), clearIdx);
+  assert.ok(
+    /finally\s*\{/.test(beforeClear),
+    'the hop timer clear must be in a finally block so it runs on success and abort (issue #766)',
+  );
+});
+
+// Runtime check for #766: after a successful preview fetch, the per-hop
+// connect+headers timer must not remain pending. We drive a real successful
+// hop through _fetchLinkPreview by mocking fetch (returns a 200 HTML
+// response) and resolveDns (returns a public IP so SSRF validation passes),
+// then assert the pending Timeout count returns to baseline. The old code
+// left a 15s timer dangling per hop.
+test('no pending hop timer after a successful preview fetch', async (t) => {
+  // The body is consumed via `for await`, so an async iterable is enough.
+  // Yield a string so the body-read loop (which does String(chunk)) yields
+  // the HTML text directly.
+  async function* bodyStream() {
+    yield '<html><head><title>ok</title></head><body>hi</body></html>';
+  }
+
+  const fakeResponse = {
+    status: 200,
+    ok: true,
+    headers: new Map([['content-type', 'text/html']]),
+    url: 'http://93.184.216.34/',
+    body: bodyStream(),
+  };
+
+  // Mock fetch to return a 200 HTML response.
+  t.mock.method(globalThis, 'fetch', async () => fakeResponse);
+
+  const countTimers = () =>
+    (process.getActiveResourcesInfo() || []).filter((r) => r === 'Timeout').length;
+
+  // Let any in-flight timers from prior tests settle so the baseline is clean.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const before = countTimers();
+
+  // Use a public IP literal as the host so SSRF validation short-circuits
+  // (net.isIP) without any real DNS lookup.
+  const url = 'http://93.184.216.34/';
+  const result = await server._fetchLinkPreview(url, url);
+  assert.ok(result.data && result.data.title === 'ok', 'expected a successful preview');
+
+  // Give the event loop a tick so a leaked timer would still be visible.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const after = countTimers();
+
+  t.mock.restoreAll();
+
+  assert.ok(
+    after <= before,
+    `a hop timer leaked: ${before} timers before, ${after} after a successful fetch (issue #766)`,
+  );
+});
