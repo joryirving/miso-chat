@@ -242,8 +242,12 @@ function extractLinkPreviewData(html, pageUrl) {
 // SSE clients for real-time gateway event forwarding
 const sseClients = new Set();
 
-// Trust proxy for rate limiting behind Envoy
-app.set('trust proxy', 1);
+// NOTE: `app.set('trust proxy', ...)` is intentionally NOT set. Trusting one
+// hop of forwarded headers from any peer would let a direct client on port
+// 3000 spoof req.protocol / req.ip / req.get('host'). Forwarded headers are
+// instead honored per-request, only when the TCP peer is on the
+// TRUSTED_PROXY_IPS allowlist, via lib/trusted-proxies.js (buildRateLimitKey,
+// safeProtocol, safeHost).
 
 const configuredCorsOrigins = String(process.env.CORS_ORIGIN || process.env.ALLOWED_ORIGINS || '')
   .split(',')
