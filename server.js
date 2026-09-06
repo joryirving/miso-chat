@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const dns = require("dns");
+const net = require("net");
 require('dotenv').config();
 
 const { GatewayWsManager } = require('./lib/gateway-ws');
@@ -17,7 +18,7 @@ const { reactions } = require('./lib/db');
 const { requireSessionAccess } = require('./lib/session-auth');
 const { createReactionsRoutes } = require('./lib/routes/reactions');
 
-const { isForbiddenLinkPreviewHost } = require('./lib/ssrf-validation');
+const { isForbiddenLinkPreviewHost, resolveValidatedLinkPreviewAddress } = require('./lib/ssrf-validation');
 const { validateManifest } = require('./lib/mobile-manifest-validator');
 const { buildSessionConfig, setupPassport, registerAuthRoutes, buildIsAuthenticated, getOidcLabel, getReturnTo } = require('./lib/auth-session');
 
@@ -1403,12 +1404,6 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
       const parsedUrl = new URL(currentUrl);
       const host = parsedUrl.hostname;
 
-      // Validate each hop's hostname (with DNS resolution for rebinding protection)
-      if (await isForbiddenLinkPreviewHost(host, { resolveDns: true })) {
-        clearTimeout(overallTimeoutHandle);
-        throw new Error('Redirect target is a local/private host');
-      }
-
       // Per-phase timeouts for this hop
       const hopController = new AbortController();
       // Compose: abort the hop's fetch when either the per-hop timer or
@@ -1417,19 +1412,40 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
       // timer callback.
       const hopSignal = AbortSignal.any([hopController.signal, overallController.signal]);
 
-      // DNS timeout: use AbortSignal.timeout to abort the lookup on slow DNS
+      // Resolve the host ONCE and validate the answer, then pin that address
+      // as the actual connection target (issue #849). The old code resolved
+      // for telemetry, ran a separate SSRF check, and then let fetch() perform
+      // a fresh, unvalidated resolution — a DNS time-of-check/time-of-use race
+      // that let an attacker flip an A record to a private IP between the check
+      // and the connect. resolveValidatedLinkPreviewAddress resolves with
+      // { verbatim: true, all: true }, rejects if ANY answer is private, and
+      // returns the address we must dial.
       const dnsStart = Date.now();
-
+      let pinnedAddress;
       try {
-        await dns.promises.lookup(host, {
+        const resolved = await resolveValidatedLinkPreviewAddress(host, {
           signal: AbortSignal.any([
             AbortSignal.timeout(LINK_PREVIEW_DNS_TIMEOUT_MS),
             overallController.signal,
           ]),
+          // Pass the resolver through so tests can stub dns.promises.lookup.
+          // The wrapper reads dns.promises.lookup at call time, so a test
+          // that swaps that property is picked up (the server captured
+          // resolveValidatedLinkPreviewAddress by value at require time).
+          lookup: (host, options) => dns.promises.lookup(host, options),
         });
+        pinnedAddress = resolved.address;
       } catch (error) {
         if (overallController.signal.aborted) {
           throwOverallTimeout(error);
+        }
+        if (error && error.code === 'EPRIVATEHOST') {
+          clearTimeout(overallTimeoutHandle);
+          const err = new Error('Private hosts are not allowed for previews');
+          err.code = 'EPRIVATEHOST';
+          err.address = error.address;
+          err.metrics = metrics;
+          throw err;
         }
         const dnsElapsed = Date.now() - dnsStart;
         clearTimeout(overallTimeoutHandle);
@@ -1442,6 +1458,16 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
         throw err;
       }
       metrics.dns += Date.now() - dnsStart;
+
+      // Build the fetch target by dialing the pinned address while preserving
+      // the original hostname for virtual-host routing (Host header) and TLS
+      // SNI (servername). For an IP-literal host the target is unchanged.
+      const fetchUrl = new URL(currentUrl);
+      if (net.isIP(pinnedAddress) === 6) {
+        fetchUrl.hostname = `[${pinnedAddress}]`;
+      } else if (net.isIP(pinnedAddress) === 4) {
+        fetchUrl.hostname = pinnedAddress;
+      }
 
       // Connect + headers timeout via AbortController signal.
       // The timer is tracked and cleared after the fetch completes so it
@@ -1459,15 +1485,20 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
 
       try {
         while (true) {
-          // Run the fetch under per-host concurrency limiting
+          // Run the fetch under per-host concurrency limiting. The target is
+          // the pinned, validated address (issue #849); the original hostname
+          // is preserved via the Host header (virtual-host routing) and
+          // servername (TLS SNI / cert validation).
           hopRes = await linkPreviewHostLimiter.run(host, async () => {
-            return fetch(currentUrl, {
+            return fetch(fetchUrl, {
               method: 'GET',
               redirect: 'manual',
               signal: hopSignal,
+              servername: host,
               headers: {
                 Accept: 'text/html,application/xhtml+xml',
                 'User-Agent': LINK_PREVIEW_USER_AGENT,
+                Host: host,
               },
             });
           });
@@ -1526,9 +1557,11 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
         throw new Error('Upstream request failed (' + hopStatus + ')');
       }
 
-      // Validate the final resolved URL is not a private host (catches last-hop SSRF)
-      const finalUrlParsed = hopRes.url ? new URL(hopRes.url) : null;
-      if (finalUrlParsed && await isForbiddenLinkPreviewHost(finalUrlParsed.hostname, { resolveDns: true })) {
+      // Validate the final hop's host is not private (catches last-hop SSRF).
+      // The connection already dialed the pinned, validated address for this
+      // hop, so re-check the original hostname rather than hopRes.url (which
+      // now carries the pinned IP).
+      if (await isForbiddenLinkPreviewHost(host, { resolveDns: true })) {
         clearTimeout(overallTimeoutHandle);
         throw new Error('Final redirect target is a local/private host');
       }
@@ -1579,7 +1612,9 @@ async function _fetchLinkPreview(rawUrl, targetUrl) {
       metrics.bodyRead += Date.now() - bodyReadStart;
 
       const html = htmlChunks.join('').slice(0, LINK_PREVIEW_MAX_HTML_CHARS);
-      const finalUrl = hopRes.url || targetUrl.toString();
+      // Use the original (hostname) URL for the preview, not hopRes.url which
+      // now carries the pinned IP address (issue #849).
+      const finalUrl = currentUrl || targetUrl.toString();
       metrics.overall = Date.now() - overallStart;
       clearTimeout(overallTimeoutHandle);
       return { data: extractLinkPreviewData(html, finalUrl), metrics };
